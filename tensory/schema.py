@@ -233,9 +233,7 @@ async def create_schema(db: aiosqlite.Connection, *, embedding_dim: int = 1536) 
     cursor = await db.execute("SELECT COUNT(*) FROM schema_version")
     row = await cursor.fetchone()
     if row is not None and row[0] == 0:
-        await db.execute(
-            "INSERT INTO schema_version (version) VALUES (?)", (SCHEMA_VERSION,)
-        )
+        await db.execute("INSERT INTO schema_version (version) VALUES (?)", (SCHEMA_VERSION,))
 
     await db.commit()
 
@@ -251,9 +249,7 @@ async def migrate(db: aiosqlite.Connection) -> int:
             logger.info("Applying migration v%d", version)
             for sql in MIGRATIONS[version]:
                 await db.execute(sql)
-            await db.execute(
-                "UPDATE schema_version SET version = ?", (version,)
-            )
+            await db.execute("UPDATE schema_version SET version = ?", (version,))
             current = version
 
     await db.commit()

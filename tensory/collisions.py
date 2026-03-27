@@ -21,8 +21,9 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
-from typing import Callable, TYPE_CHECKING
+from collections.abc import Callable
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from tensory.models import Claim, ClaimType, Collision
 
@@ -100,9 +101,7 @@ async def find_collisions(
         is_waypoint = await _is_waypoint_linked(claim.id, candidate.id, db)
 
         vector_score = _cosine_sim(claim.embedding, candidate.embedding)
-        entity_score = (
-            len(shared) / max(len(claim.entities), len(candidate.entities), 1)
-        )
+        entity_score = len(shared) / max(len(claim.entities), len(candidate.entities), 1)
         temporal_score = _temporal_proximity(claim.created_at, candidate.created_at)
         waypoint_score = 1.0 if is_waypoint else 0.0
 
@@ -129,9 +128,7 @@ async def find_collisions(
     return sorted(collisions, key=lambda c: c.score, reverse=True)
 
 
-async def apply_salience_updates(
-    collisions: list[Collision], db: aiosqlite.Connection
-) -> None:
+async def apply_salience_updates(collisions: list[Collision], db: aiosqlite.Connection) -> None:
     """Apply LLM-free salience updates based on collision type.
 
     Rules:
@@ -155,9 +152,7 @@ async def apply_salience_updates(
 # ── Level 1: Structural conflicts ────────────────────────────────────────
 
 
-async def _find_structural_conflicts(
-    claim: Claim, db: aiosqlite.Connection
-) -> list[Collision]:
+async def _find_structural_conflicts(claim: Claim, db: aiosqlite.Connection) -> list[Collision]:
     """Find claims about same entities with overlapping validity windows.
 
     Pattern from OpenMemory find_conflicting_facts(): if two claims
@@ -180,7 +175,7 @@ async def _find_structural_conflicts(
           AND (c.valid_to IS NULL OR c.valid_to > ?)
         LIMIT 20
         """,
-        (*claim.entities, claim.id, datetime.now(timezone.utc).isoformat()),
+        (*claim.entities, claim.id, datetime.now(UTC).isoformat()),
     )
     rows = await cursor.fetchall()
 
@@ -216,9 +211,7 @@ async def _find_structural_conflicts(
 # ── Level 2: Semantic candidates ─────────────────────────────────────────
 
 
-async def _get_candidates(
-    claim: Claim, db: aiosqlite.Connection, top_k: int
-) -> list[Claim]:
+async def _get_candidates(claim: Claim, db: aiosqlite.Connection, top_k: int) -> list[Claim]:
     """Get candidate claims for semantic collision check.
 
     Uses vector search if embedding available, falls back to FTS.
@@ -294,9 +287,7 @@ async def _get_candidates(
 # ── Scoring helpers ───────────────────────────────────────────────────────
 
 
-def _cosine_sim(
-    a: list[float] | None, b: list[float] | None
-) -> float:
+def _cosine_sim(a: list[float] | None, b: list[float] | None) -> float:
     """Compute cosine similarity between two vectors."""
     if not a or not b or len(a) != len(b):
         return 0.0
@@ -319,9 +310,7 @@ def _temporal_proximity(a: datetime, b: datetime) -> float:
     return max(0.0, 1.0 - days_apart / 30.0)
 
 
-async def _is_waypoint_linked(
-    claim_a_id: str, claim_b_id: str, db: aiosqlite.Connection
-) -> bool:
+async def _is_waypoint_linked(claim_a_id: str, claim_b_id: str, db: aiosqlite.Connection) -> bool:
     """Check if two claims are connected via waypoint graph."""
     cursor = await db.execute(
         """SELECT 1 FROM waypoints
@@ -333,9 +322,7 @@ async def _is_waypoint_linked(
     return await cursor.fetchone() is not None
 
 
-def _classify_collision(
-    new_claim: Claim, existing: Claim, score: float
-) -> str:
+def _classify_collision(new_claim: Claim, existing: Claim, score: float) -> str:
     """Classify collision type based on signals.
 
     - score > 0.9 → supersedes (very similar, newer replaces older)
@@ -363,6 +350,7 @@ def _classify_collision(
 def _row_to_claim_light(row: aiosqlite.Row) -> Claim:
     """Convert DB row to Claim (without loading entities — done separately)."""
     import json as _json
+
     from tensory.models import ClaimType as _CT
 
     metadata_raw = row["metadata"]
@@ -381,14 +369,10 @@ def _row_to_claim_light(row: aiosqlite.Row) -> Claim:
         episode_id=row["episode_id"],
         context_id=row["context_id"],
         created_at=(
-            datetime.fromisoformat(row["created_at"])
-            if row["created_at"]
-            else datetime.now(timezone.utc)
+            datetime.fromisoformat(row["created_at"]) if row["created_at"] else datetime.now(UTC)
         ),
         superseded_at=(
-            datetime.fromisoformat(row["superseded_at"])
-            if row["superseded_at"]
-            else None
+            datetime.fromisoformat(row["superseded_at"]) if row["superseded_at"] else None
         ),
         superseded_by=row["superseded_by"],
         metadata=metadata,

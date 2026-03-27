@@ -68,10 +68,7 @@ def _minhash(shingles: frozenset[str], num_perm: int = 32) -> list[int]:
     if not shingles:
         return [0] * num_perm
     return [
-        min(
-            int(hashlib.md5(f"{i}:{s}".encode()).hexdigest(), 16)
-            for s in shingles
-        )
+        min(int(hashlib.md5(f"{i}:{s}".encode()).hexdigest(), 16) for s in shingles)
         for i in range(num_perm)
     ]
 
@@ -82,10 +79,7 @@ def _lsh_bands(signature: list[int], band_size: int = 4) -> list[tuple[int, ...]
     Each band is a tuple of consecutive hash values. Two signatures
     that share any band are candidate duplicates.
     """
-    return [
-        tuple(signature[i : i + band_size])
-        for i in range(0, len(signature), band_size)
-    ]
+    return [tuple(signature[i : i + band_size]) for i in range(0, len(signature), band_size)]
 
 
 def _jaccard(a: frozenset[str], b: frozenset[str]) -> float:
@@ -138,9 +132,7 @@ class MinHashDedup:
         if entropy < self.entropy_threshold:
             # Low entropy → exact normalized match only (fuzzy unreliable)
             norm = " ".join(new_text.lower().split())
-            return any(
-                " ".join(t.lower().split()) == norm for t in existing_texts
-            )
+            return any(" ".join(t.lower().split()) == norm for t in existing_texts)
 
         # High entropy → MinHash/LSH + Jaccard
         new_shingles = _shingle(new_text)
@@ -149,9 +141,7 @@ class MinHashDedup:
                 return True
         return False
 
-    def find_duplicates(
-        self, new_text: str, existing_texts: list[str]
-    ) -> list[int]:
+    def find_duplicates(self, new_text: str, existing_texts: list[str]) -> list[int]:
         """Find indices of existing texts that are duplicates of new_text.
 
         Returns list of indices into existing_texts that are duplicates.

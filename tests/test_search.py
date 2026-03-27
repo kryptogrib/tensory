@@ -10,11 +10,9 @@ import hashlib
 
 import pytest
 
-from tensory import Claim, ClaimType, Tensory
-from tensory.embedder import NullEmbedder
-from tensory.search import _rrf_merge
+from tensory import Claim, Tensory
 from tensory.models import SearchResult
-
+from tensory.search import _rrf_merge
 
 # ── Fake embedder for deterministic testing ───────────────────────────────
 
@@ -36,7 +34,7 @@ class FakeEmbedder:
     def _word_vec(self, word: str) -> list[float]:
         """Deterministic vector from a single word."""
         h = hashlib.sha256(word.lower().encode()).digest()
-        return [((b % 200) - 100) / 100.0 for b in h[:self._dim]]
+        return [((b % 200) - 100) / 100.0 for b in h[: self._dim]]
 
     def _text_vec(self, text: str) -> list[float]:
         """Average of word vectors."""
@@ -66,10 +64,12 @@ async def vec_store() -> Tensory:
 
 async def test_fts_search_still_works(store: Tensory) -> None:
     """Phase 1 FTS search continues to work with new hybrid pipeline."""
-    await store.add_claims([
-        Claim(text="EigenLayer announced a new partnership"),
-        Claim(text="Bitcoin price reached new highs"),
-    ])
+    await store.add_claims(
+        [
+            Claim(text="EigenLayer announced a new partnership"),
+            Claim(text="Bitcoin price reached new highs"),
+        ]
+    )
 
     results = await store.search("EigenLayer")
     assert len(results) >= 1
@@ -78,9 +78,11 @@ async def test_fts_search_still_works(store: Tensory) -> None:
 
 async def test_search_without_embedder_falls_back_to_fts(store: Tensory) -> None:
     """With NullEmbedder, search falls back to FTS + graph (no vector)."""
-    await store.add_claims([
-        Claim(text="Lido launched staking v2", entities=["Lido"]),
-    ])
+    await store.add_claims(
+        [
+            Claim(text="Lido launched staking v2", entities=["Lido"]),
+        ]
+    )
 
     results = await store.search("Lido")
     assert len(results) >= 1
@@ -90,11 +92,13 @@ async def test_search_without_embedder_falls_back_to_fts(store: Tensory) -> None
 
 async def test_hybrid_search_returns_results(vec_store: Tensory) -> None:
     """Hybrid search with FakeEmbedder returns results via multiple channels."""
-    await vec_store.add_claims([
-        Claim(text="EigenLayer restaking protocol launched", entities=["EigenLayer"]),
-        Claim(text="Lido staking reached 10M ETH", entities=["Lido", "ETH"]),
-        Claim(text="EigenLayer team grew to 60 engineers", entities=["EigenLayer"]),
-    ])
+    await vec_store.add_claims(
+        [
+            Claim(text="EigenLayer restaking protocol launched", entities=["EigenLayer"]),
+            Claim(text="Lido staking reached 10M ETH", entities=["Lido", "ETH"]),
+            Claim(text="EigenLayer team grew to 60 engineers", entities=["EigenLayer"]),
+        ]
+    )
 
     results = await vec_store.search("EigenLayer")
     assert len(results) >= 1
@@ -105,9 +109,11 @@ async def test_hybrid_search_returns_results(vec_store: Tensory) -> None:
 
 async def test_search_method_is_hybrid(vec_store: Tensory) -> None:
     """Results from hybrid search have method='hybrid'."""
-    await vec_store.add_claims([
-        Claim(text="Test hybrid method claim"),
-    ])
+    await vec_store.add_claims(
+        [
+            Claim(text="Test hybrid method claim"),
+        ]
+    )
     results = await vec_store.search("hybrid")
     if results:
         assert results[0].method == "hybrid"
@@ -174,9 +180,11 @@ def test_rrf_merge_weights_matter() -> None:
 
 async def test_surprise_score_high_for_novel(vec_store: Tensory) -> None:
     """First claim in an empty DB has high surprise (novel information)."""
-    result = await vec_store.add_claims([
-        Claim(text="Completely new and unprecedented information"),
-    ])
+    result = await vec_store.add_claims(
+        [
+            Claim(text="Completely new and unprecedented information"),
+        ]
+    )
 
     surprise = result.claims[0].metadata.get("surprise")
     assert surprise is not None
@@ -186,14 +194,18 @@ async def test_surprise_score_high_for_novel(vec_store: Tensory) -> None:
 async def test_surprise_score_low_for_similar(vec_store: Tensory) -> None:
     """Claim similar to existing has lower surprise."""
     # Add initial claim
-    await vec_store.add_claims([
-        Claim(text="EigenLayer restaking protocol has 50 team members"),
-    ])
+    await vec_store.add_claims(
+        [
+            Claim(text="EigenLayer restaking protocol has 50 team members"),
+        ]
+    )
 
     # Add very similar claim
-    result = await vec_store.add_claims([
-        Claim(text="EigenLayer restaking protocol has 55 team members"),
-    ])
+    result = await vec_store.add_claims(
+        [
+            Claim(text="EigenLayer restaking protocol has 55 team members"),
+        ]
+    )
 
     surprise = result.claims[0].metadata.get("surprise")
     assert surprise is not None
@@ -204,9 +216,11 @@ async def test_surprise_score_low_for_similar(vec_store: Tensory) -> None:
 async def test_surprise_boosts_salience(vec_store: Tensory) -> None:
     """High surprise claims get salience boosted."""
     # First claim: high surprise (empty DB)
-    result = await vec_store.add_claims([
-        Claim(text="Unprecedented discovery in quantum computing", salience=0.5),
-    ])
+    result = await vec_store.add_claims(
+        [
+            Claim(text="Unprecedented discovery in quantum computing", salience=0.5),
+        ]
+    )
 
     # Salience should be boosted above the initial 0.5
     claim = result.claims[0]
@@ -217,9 +231,11 @@ async def test_surprise_boosts_salience(vec_store: Tensory) -> None:
 
 async def test_surprise_with_null_embedder(store: Tensory) -> None:
     """Surprise is 0.0 when NullEmbedder is used (can't compute without vectors)."""
-    result = await store.add_claims([
-        Claim(text="Some claim without real embeddings"),
-    ])
+    result = await store.add_claims(
+        [
+            Claim(text="Some claim without real embeddings"),
+        ]
+    )
     surprise = result.claims[0].metadata.get("surprise")
     assert float(str(surprise)) == 0.0
 
@@ -229,20 +245,22 @@ async def test_surprise_with_null_embedder(store: Tensory) -> None:
 
 async def test_priming_boosts_recent_entities(store: Tensory) -> None:
     """Claims with recently-searched entities get boosted in results."""
-    await store.add_claims([
-        Claim(text="EigenLayer announced partnership", entities=["EigenLayer"]),
-        Claim(text="Lido staking protocol update", entities=["Lido"]),
-        Claim(text="EigenLayer team expansion news", entities=["EigenLayer"]),
-    ])
+    await store.add_claims(
+        [
+            Claim(text="EigenLayer announced partnership", entities=["EigenLayer"]),
+            Claim(text="Lido staking protocol update", entities=["Lido"]),
+            Claim(text="EigenLayer team expansion news", entities=["EigenLayer"]),
+        ]
+    )
 
     # First search: establishes EigenLayer as "recent"
-    results1 = await store.search("partnership")
+    await store.search("partnership")
 
     # Check priming counter was updated
     assert store._recent_entities["EigenLayer"] >= 1
 
     # Second search: EigenLayer claims should be boosted by priming
-    results2 = await store.search("protocol")
+    await store.search("protocol")
 
     # Verify priming counter increased
     assert store._recent_entities["EigenLayer"] >= 1
@@ -269,9 +287,11 @@ async def test_priming_counter_capped(store: Tensory) -> None:
 
 async def test_reinforce_on_access_boosts_salience(store: Tensory) -> None:
     """Claims found via search get +0.05 salience."""
-    await store.add_claims([
-        Claim(text="EigenLayer restaking protocol", salience=0.5),
-    ])
+    await store.add_claims(
+        [
+            Claim(text="EigenLayer restaking protocol", salience=0.5),
+        ]
+    )
 
     results = await store.search("EigenLayer")
     assert len(results) == 1
@@ -288,16 +308,16 @@ async def test_reinforce_on_access_boosts_salience(store: Tensory) -> None:
 
 async def test_reinforce_stacks_on_multiple_searches(store: Tensory) -> None:
     """Multiple searches for same claim compound the salience boost."""
-    await store.add_claims([
-        Claim(text="EigenLayer restaking protocol", salience=0.5),
-    ])
-
-    await store.search("EigenLayer")
-    await store.search("EigenLayer")
-
-    cursor = await store._db.execute(
-        "SELECT salience, access_count FROM claims LIMIT 1"
+    await store.add_claims(
+        [
+            Claim(text="EigenLayer restaking protocol", salience=0.5),
+        ]
     )
+
+    await store.search("EigenLayer")
+    await store.search("EigenLayer")
+
+    cursor = await store._db.execute("SELECT salience, access_count FROM claims LIMIT 1")
     row = await cursor.fetchone()
     assert row is not None
     assert float(row[0]) == pytest.approx(0.60, abs=0.01)  # 0.5 + 0.05 + 0.05

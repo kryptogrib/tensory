@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -13,8 +14,6 @@ from tensory.collisions import (
     _cosine_sim,
     _temporal_proximity,
 )
-from datetime import datetime, timezone, timedelta
-
 
 # ── Reuse FakeEmbedder from test_search ───────────────────────────────────
 
@@ -77,18 +76,18 @@ def test_cosine_sim_none() -> None:
 
 
 def test_temporal_proximity_same_day() -> None:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     assert _temporal_proximity(now, now) == pytest.approx(1.0, abs=0.01)
 
 
 def test_temporal_proximity_30_days() -> None:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     month_ago = now - timedelta(days=30)
     assert _temporal_proximity(now, month_ago) == pytest.approx(0.0, abs=0.01)
 
 
 def test_temporal_proximity_15_days() -> None:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     half_month = now - timedelta(days=15)
     assert _temporal_proximity(now, half_month) == pytest.approx(0.5, abs=0.01)
 
@@ -148,30 +147,36 @@ def test_salience_related_small_boost() -> None:
 
 async def test_structural_collision_same_entity(store: Tensory) -> None:
     """Two claims about the same entity trigger structural collision."""
-    await store.add_claims([
-        Claim(text="EigenLayer has 50 team members", entities=["EigenLayer"]),
-    ])
+    await store.add_claims(
+        [
+            Claim(text="EigenLayer has 50 team members", entities=["EigenLayer"]),
+        ]
+    )
 
-    result = await store.add_claims([
-        Claim(text="EigenLayer has 45 team members", entities=["EigenLayer"]),
-    ])
+    result = await store.add_claims(
+        [
+            Claim(text="EigenLayer has 45 team members", entities=["EigenLayer"]),
+        ]
+    )
 
     # Should detect collision between the two claims
     assert len(result.collisions) >= 1
-    assert any(
-        "EigenLayer" in c.shared_entities for c in result.collisions
-    )
+    assert any("EigenLayer" in c.shared_entities for c in result.collisions)
 
 
 async def test_no_collision_different_entities(store: Tensory) -> None:
     """Claims about different entities don't collide structurally."""
-    await store.add_claims([
-        Claim(text="EigenLayer launched v2", entities=["EigenLayer"]),
-    ])
+    await store.add_claims(
+        [
+            Claim(text="EigenLayer launched v2", entities=["EigenLayer"]),
+        ]
+    )
 
-    result = await store.add_claims([
-        Claim(text="Lido launched v3", entities=["Lido"]),
-    ])
+    result = await store.add_claims(
+        [
+            Claim(text="Lido launched v3", entities=["Lido"]),
+        ]
+    )
 
     assert len(result.collisions) == 0
 
@@ -181,18 +186,20 @@ async def test_no_collision_different_entities(store: Tensory) -> None:
 
 async def test_salience_drops_on_contradiction(store: Tensory) -> None:
     """Contradicted claims get salience halved."""
-    await store.add_claims([
-        Claim(text="EigenLayer has 50 team members", entities=["EigenLayer"], salience=1.0),
-    ])
+    await store.add_claims(
+        [
+            Claim(text="EigenLayer has 50 team members", entities=["EigenLayer"], salience=1.0),
+        ]
+    )
 
-    await store.add_claims([
-        Claim(text="EigenLayer has 45 team members", entities=["EigenLayer"]),
-    ])
+    await store.add_claims(
+        [
+            Claim(text="EigenLayer has 45 team members", entities=["EigenLayer"]),
+        ]
+    )
 
     # Check the first claim's salience was reduced
-    cursor = await store._db.execute(
-        "SELECT salience FROM claims ORDER BY created_at ASC LIMIT 1"
-    )
+    cursor = await store._db.execute("SELECT salience FROM claims ORDER BY created_at ASC LIMIT 1")
     row = await cursor.fetchone()
     assert row is not None
     # Should be less than original (1.0) due to contradiction
@@ -204,14 +211,18 @@ async def test_salience_drops_on_contradiction(store: Tensory) -> None:
 
 async def test_waypoint_created_on_ingest(vec_store: Tensory) -> None:
     """Waypoints are auto-created when a similar claim exists."""
-    await vec_store.add_claims([
-        Claim(text="EigenLayer restaking protocol launched successfully today"),
-    ])
+    await vec_store.add_claims(
+        [
+            Claim(text="EigenLayer restaking protocol launched successfully today"),
+        ]
+    )
 
     # Very similar text — differs by only one word
-    await vec_store.add_claims([
-        Claim(text="EigenLayer restaking protocol launched successfully yesterday"),
-    ])
+    await vec_store.add_claims(
+        [
+            Claim(text="EigenLayer restaking protocol launched successfully yesterday"),
+        ]
+    )
 
     cursor = await vec_store._db.execute("SELECT COUNT(*) FROM waypoints")
     row = await cursor.fetchone()
@@ -221,13 +232,17 @@ async def test_waypoint_created_on_ingest(vec_store: Tensory) -> None:
 
 async def test_no_waypoint_for_dissimilar_claims(vec_store: Tensory) -> None:
     """No waypoint when claims are too dissimilar (< 0.75 cosine)."""
-    await vec_store.add_claims([
-        Claim(text="EigenLayer restaking protocol"),
-    ])
+    await vec_store.add_claims(
+        [
+            Claim(text="EigenLayer restaking protocol"),
+        ]
+    )
 
-    await vec_store.add_claims([
-        Claim(text="Bitcoin price prediction analysis for Q4"),
-    ])
+    await vec_store.add_claims(
+        [
+            Claim(text="Bitcoin price prediction analysis for Q4"),
+        ]
+    )
 
     cursor = await vec_store._db.execute("SELECT COUNT(*) FROM waypoints")
     row = await cursor.fetchone()
@@ -241,13 +256,17 @@ async def test_no_waypoint_for_dissimilar_claims(vec_store: Tensory) -> None:
 
 async def test_dedup_blocks_duplicate_in_store(store: Tensory) -> None:
     """Duplicate claims are skipped during add_claims."""
-    await store.add_claims([
-        Claim(text="EigenLayer has 50 team members working on restaking protocol"),
-    ])
+    await store.add_claims(
+        [
+            Claim(text="EigenLayer has 50 team members working on restaking protocol"),
+        ]
+    )
 
-    result = await store.add_claims([
-        Claim(text="EigenLayer has 50 team members working on restaking protocol"),
-    ])
+    result = await store.add_claims(
+        [
+            Claim(text="EigenLayer has 50 team members working on restaking protocol"),
+        ]
+    )
 
     # Duplicate should be skipped
     assert len(result.claims) == 0
@@ -263,36 +282,36 @@ async def test_dedup_blocks_duplicate_in_store(store: Tensory) -> None:
 async def test_eigenlayer_collision_scenario(store: Tensory) -> None:
     """End-to-end: conflicting claims about EigenLayer trigger collision."""
     # Day 1: Initial fact
-    r1 = await store.add_claims([
-        Claim(
-            text="EigenLayer team has 50 members",
-            entities=["EigenLayer"],
-            type=ClaimType.FACT,
-        ),
-    ])
+    r1 = await store.add_claims(
+        [
+            Claim(
+                text="EigenLayer team has 50 members",
+                entities=["EigenLayer"],
+                type=ClaimType.FACT,
+            ),
+        ]
+    )
     assert len(r1.claims) == 1
 
     # Day 2: Contradicting fact
-    r2 = await store.add_claims([
-        Claim(
-            text="EigenLayer team has grown to 65 members",
-            entities=["EigenLayer"],
-            type=ClaimType.FACT,
-        ),
-    ])
+    r2 = await store.add_claims(
+        [
+            Claim(
+                text="EigenLayer team has grown to 65 members",
+                entities=["EigenLayer"],
+                type=ClaimType.FACT,
+            ),
+        ]
+    )
     assert len(r2.claims) == 1
     assert len(r2.collisions) >= 1
 
     # The collision should involve EigenLayer
-    eigen_collisions = [
-        c for c in r2.collisions if "EigenLayer" in c.shared_entities
-    ]
+    eigen_collisions = [c for c in r2.collisions if "EigenLayer" in c.shared_entities]
     assert len(eigen_collisions) >= 1
 
     # First claim's salience should be reduced
-    cursor = await store._db.execute(
-        "SELECT salience FROM claims ORDER BY created_at ASC LIMIT 1"
-    )
+    cursor = await store._db.execute("SELECT salience FROM claims ORDER BY created_at ASC LIMIT 1")
     row = await cursor.fetchone()
     assert row is not None
     assert float(row[0]) < 1.0  # reduced from collision

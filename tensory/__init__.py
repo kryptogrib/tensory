@@ -27,19 +27,23 @@ from tensory.models import (
 from tensory.store import Tensory
 
 __all__ = [
+    # Core
+    "Tensory",
+    # Models
     "Claim",
     "ClaimType",
     "Collision",
     "Context",
-    "Embedder",
-    "LLMProtocol",
     "EntityRelation",
     "Episode",
     "IngestResult",
+    "SearchResult",
+    # Protocols
+    "Embedder",
+    "LLMProtocol",
+    # Embedders
     "NullEmbedder",
     "OpenAIEmbedder",
-    "SearchResult",
-    "Tensory",
 ]
 
 __version__ = "0.1.0"

@@ -7,7 +7,6 @@ import json
 from tensory.extract import _parse_extraction, extract_claims
 from tensory.models import Context
 
-
 # ── Fake LLM for testing ─────────────────────────────────────────────────
 
 
@@ -27,26 +26,28 @@ class FakeLLM:
 
 
 def test_parse_valid_json() -> None:
-    response = json.dumps({
-        "claims": [
-            {
-                "text": "EigenLayer has 50 members",
-                "type": "fact",
-                "entities": ["EigenLayer"],
-                "temporal": "2026",
-                "confidence": 0.9,
-                "relevance": 0.8,
-            }
-        ],
-        "relations": [
-            {
-                "from": "Google",
-                "to": "EigenLayer",
-                "type": "PARTNERED_WITH",
-                "fact": "Google partnered with EigenLayer",
-            }
-        ],
-    })
+    response = json.dumps(
+        {
+            "claims": [
+                {
+                    "text": "EigenLayer has 50 members",
+                    "type": "fact",
+                    "entities": ["EigenLayer"],
+                    "temporal": "2026",
+                    "confidence": 0.9,
+                    "relevance": 0.8,
+                }
+            ],
+            "relations": [
+                {
+                    "from": "Google",
+                    "to": "EigenLayer",
+                    "type": "PARTNERED_WITH",
+                    "fact": "Google partnered with EigenLayer",
+                }
+            ],
+        }
+    )
 
     claims, relations = _parse_extraction(response, context_id="ctx_1")
 
@@ -84,10 +85,12 @@ def test_parse_invalid_json() -> None:
 
 
 def test_parse_missing_fields() -> None:
-    response = json.dumps({
-        "claims": [{"text": "Minimal claim"}],
-        "relations": [],
-    })
+    response = json.dumps(
+        {
+            "claims": [{"text": "Minimal claim"}],
+            "relations": [],
+        }
+    )
     claims, _ = _parse_extraction(response)
     assert len(claims) == 1
     assert claims[0].type.value == "fact"  # default
@@ -99,10 +102,16 @@ def test_parse_missing_fields() -> None:
 
 
 async def test_extract_with_context() -> None:
-    llm = FakeLLM(json.dumps({
-        "claims": [{"text": "Test claim", "type": "fact", "entities": ["Test"], "relevance": 0.9}],
-        "relations": [],
-    }))
+    llm = FakeLLM(
+        json.dumps(
+            {
+                "claims": [
+                    {"text": "Test claim", "type": "fact", "entities": ["Test"], "relevance": 0.9}
+                ],
+                "relations": [],
+            }
+        )
+    )
 
     ctx = Context(id="ctx1", goal="Track testing", domain="tech")
     claims, _ = await extract_claims("some text", llm, context=ctx)
@@ -113,10 +122,14 @@ async def test_extract_with_context() -> None:
 
 
 async def test_extract_without_context() -> None:
-    llm = FakeLLM(json.dumps({
-        "claims": [{"text": "Generic claim", "type": "experience"}],
-        "relations": [],
-    }))
+    llm = FakeLLM(
+        json.dumps(
+            {
+                "claims": [{"text": "Generic claim", "type": "experience"}],
+                "relations": [],
+            }
+        )
+    )
 
     claims, _ = await extract_claims("some text", llm)
     assert len(claims) == 1
