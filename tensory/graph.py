@@ -11,7 +11,7 @@ References:
 from __future__ import annotations
 
 import uuid
-from typing import Protocol, runtime_checkable, TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     import aiosqlite
@@ -48,15 +48,11 @@ class GraphBackend(Protocol):
         """Find entity IDs reachable within `depth` hops."""
         ...
 
-    async def get_shared_entities(
-        self, claim_id: str, limit: int = 50
-    ) -> list[str]:
+    async def get_shared_entities(self, claim_id: str, limit: int = 50) -> list[str]:
         """Get entity IDs shared with other claims (for collision scoring)."""
         ...
 
-    async def find_path(
-        self, from_entity: str, to_entity: str
-    ) -> list[str]:
+    async def find_path(self, from_entity: str, to_entity: str) -> list[str]:
         """Find shortest path between two entities. Returns entity IDs."""
         ...
 
@@ -80,9 +76,7 @@ class SQLiteGraphBackend:
         # Normalize entity name for consistent lookups
         normalized = name.strip()
 
-        cursor = await self._db.execute(
-            "SELECT id FROM entities WHERE name = ?", (normalized,)
-        )
+        cursor = await self._db.execute("SELECT id FROM entities WHERE name = ?", (normalized,))
         row = await cursor.fetchone()
 
         if row is not None:
@@ -173,9 +167,7 @@ class SQLiteGraphBackend:
         rows = await cursor.fetchall()
         return [row[0] for row in rows]
 
-    async def get_shared_entities(
-        self, claim_id: str, limit: int = 50
-    ) -> list[str]:
+    async def get_shared_entities(self, claim_id: str, limit: int = 50) -> list[str]:
         """Find entities shared between this claim and other claims."""
         cursor = await self._db.execute(
             """
@@ -190,9 +182,7 @@ class SQLiteGraphBackend:
         rows = await cursor.fetchall()
         return [row[0] for row in rows]
 
-    async def find_path(
-        self, from_entity: str, to_entity: str
-    ) -> list[str]:
+    async def find_path(self, from_entity: str, to_entity: str) -> list[str]:
         """BFS shortest path between two entities via entity_relations."""
         cursor = await self._db.execute(
             """

@@ -8,18 +8,18 @@ Layer 3: CONTEXT   — Context (user research goal as extraction lens).
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from enum import Enum
+from datetime import UTC, datetime
+from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
 
 def _utcnow() -> datetime:
     """UTC-aware datetime factory for default field values."""
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
-class ClaimType(str, Enum):
+class ClaimType(StrEnum):
     """Claim taxonomy — each type has a different decay rate.
 
     Inspired by Hindsight CARA architecture (arxiv.org/abs/2512.12818).

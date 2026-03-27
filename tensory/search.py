@@ -19,7 +19,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from tensory.models import Claim, ClaimType, SearchResult
@@ -121,14 +121,16 @@ async def fts_search(
     results: list[SearchResult] = []
     for row in rows:
         claim = _row_to_claim(row)
-        fts_rank = float(row["rank"]) if "rank" in row.keys() else 0.0
+        fts_rank = float(row["rank"]) if "rank" in row else 0.0
         score = -fts_rank if fts_rank < 0 else fts_rank
 
-        results.append(SearchResult(
-            claim=claim,
-            score=score,
-            method="fts",
-        ))
+        results.append(
+            SearchResult(
+                claim=claim,
+                score=score,
+                method="fts",
+            )
+        )
 
     return results
 
@@ -165,11 +167,13 @@ async def vector_search(
         # Convert cosine distance to similarity score (1 - distance)
         score = max(0.0, 1.0 - distance)
 
-        results.append(SearchResult(
-            claim=claim,
-            score=score,
-            method="vector",
-        ))
+        results.append(
+            SearchResult(
+                claim=claim,
+                score=score,
+                method="vector",
+            )
+        )
 
     return results
 
@@ -245,11 +249,13 @@ async def graph_search(
         claim = _row_to_claim(row)
         # Score by position (graph doesn't have a natural similarity score)
         score = 1.0 / (1 + i)
-        results.append(SearchResult(
-            claim=claim,
-            score=score,
-            method="graph",
-        ))
+        results.append(
+            SearchResult(
+                claim=claim,
+                score=score,
+                method="graph",
+            )
+        )
 
     return results
 
@@ -285,12 +291,14 @@ def _rrf_merge(
     merged: list[SearchResult] = []
     for cid in sorted_ids[:limit]:
         result = items[cid]
-        merged.append(SearchResult(
-            claim=result.claim,
-            score=scores[cid],
-            relevance=result.relevance,
-            method="hybrid",
-        ))
+        merged.append(
+            SearchResult(
+                claim=result.claim,
+                score=scores[cid],
+                relevance=result.relevance,
+                method="hybrid",
+            )
+        )
 
     return merged
 
@@ -334,8 +342,12 @@ def _row_to_claim(row: aiosqlite.Row) -> Claim:
         context_id=row["context_id"],
         valid_from=datetime.fromisoformat(row["valid_from"]) if row["valid_from"] else None,
         valid_to=datetime.fromisoformat(row["valid_to"]) if row["valid_to"] else None,
-        created_at=datetime.fromisoformat(row["created_at"]) if row["created_at"] else datetime.now(timezone.utc),
-        superseded_at=datetime.fromisoformat(row["superseded_at"]) if row["superseded_at"] else None,
+        created_at=datetime.fromisoformat(row["created_at"])
+        if row["created_at"]
+        else datetime.now(UTC),
+        superseded_at=datetime.fromisoformat(row["superseded_at"])
+        if row["superseded_at"]
+        else None,
         superseded_by=row["superseded_by"],
         metadata=metadata,
     )

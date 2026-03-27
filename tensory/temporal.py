@@ -13,9 +13,10 @@ References:
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import math
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from tensory.models import Claim, ClaimType
@@ -44,7 +45,7 @@ async def supersede(
     Sets superseded_at timestamp and superseded_by reference.
     Superseded claims are excluded from search results.
     """
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     await db.execute(
         """UPDATE claims
            SET superseded_at = ?, superseded_by = ?, salience = salience * 0.1
@@ -70,7 +71,9 @@ async def auto_supersede_on_collision(
         await supersede(old_claim_id, new_claim_id, db)
         logger.info(
             "Auto-superseded claim %s by %s (score=%.2f)",
-            old_claim_id[:8], new_claim_id[:8], collision_score,
+            old_claim_id[:8],
+            new_claim_id[:8],
+            collision_score,
         )
         return True
     return False
@@ -114,7 +117,7 @@ async def apply_decay(db: aiosqlite.Connection) -> int:
 
     Returns number of claims updated.
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     cursor = await db.execute(
         """SELECT id, salience, decay_rate, type, last_accessed, created_at
            FROM claims
@@ -126,8 +129,8 @@ async def apply_decay(db: aiosqlite.Connection) -> int:
     for row in rows:
         claim_id = row[0]
         current_salience = float(row[1])
-        decay_rate = float(row[2]) if row[2] is not None else DECAY_RATES.get(
-            ClaimType(row[3]), 0.010
+        decay_rate = (
+            float(row[2]) if row[2] is not None else DECAY_RATES.get(ClaimType(row[3]), 0.010)
         )
 
         # Use last_accessed if available, otherwise created_at
@@ -136,7 +139,7 @@ async def apply_decay(db: aiosqlite.Connection) -> int:
             ref_dt = datetime.fromisoformat(str(reference_time))
             # Make timezone-aware if needed
             if ref_dt.tzinfo is None:
-                ref_dt = ref_dt.replace(tzinfo=timezone.utc)
+                ref_dt = ref_dt.replace(tzinfo=UTC)
             days_elapsed = (now - ref_dt).total_seconds() / 86400
         else:
             days_elapsed = 0
@@ -171,8 +174,9 @@ async def cleanup(
 
     Returns number of claims removed.
     """
-    cutoff = datetime.now(timezone.utc)
+    cutoff = datetime.now(UTC)
     from datetime import timedelta
+
     cutoff_str = (cutoff - timedelta(days=max_age_days)).isoformat()
 
     # Find claims to remove
@@ -206,13 +210,11 @@ async def cleanup(
     )
 
     # Try to remove embeddings (may not exist if sqlite-vec unavailable)
-    try:
+    with contextlib.suppress(Exception):
         await db.execute(
             f"DELETE FROM claim_embeddings WHERE claim_id IN ({placeholders})",
             claim_ids,
         )
-    except Exception:
-        pass
 
     # Remove claims themselves
     await db.execute(
@@ -248,14 +250,10 @@ def _row_to_claim(row: aiosqlite.Row) -> Claim:
         episode_id=row["episode_id"],
         context_id=row["context_id"],
         created_at=(
-            datetime.fromisoformat(row["created_at"])
-            if row["created_at"]
-            else datetime.now(timezone.utc)
+            datetime.fromisoformat(row["created_at"]) if row["created_at"] else datetime.now(UTC)
         ),
         superseded_at=(
-            datetime.fromisoformat(row["superseded_at"])
-            if row["superseded_at"]
-            else None
+            datetime.fromisoformat(row["superseded_at"]) if row["superseded_at"] else None
         ),
         superseded_by=row["superseded_by"],
         metadata=metadata,

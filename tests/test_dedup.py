@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from tensory.dedup import MinHashDedup, _jaccard, _shannon_entropy, _shingle
 
-
 # ── Entropy ───────────────────────────────────────────────────────────────
 
 
@@ -66,7 +65,9 @@ def test_dedup_blocks_exact_duplicate() -> None:
 
 def test_dedup_blocks_fuzzy_duplicate() -> None:
     dedup = MinHashDedup(jaccard_threshold=0.75)  # lowered for real-world fuzzy matching
-    existing = ["EigenLayer announced a major partnership with Google Cloud for restaking infrastructure"]
+    existing = [
+        "EigenLayer announced a major partnership with Google Cloud for restaking infrastructure"
+    ]
     assert dedup.is_duplicate(
         "EigenLayer announced a major partnership with Google Cloud for restaking services",
         existing,

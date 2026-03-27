@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
 from tensory import Claim, ClaimType, Tensory
-from tensory.temporal import apply_decay, supersede, timeline
-
+from tensory.temporal import apply_decay, supersede
 
 # ── Fake LLM ──────────────────────────────────────────────────────────────
 
@@ -18,32 +17,34 @@ class FakeLLM:
     """Returns pre-configured extraction response."""
 
     def __init__(self) -> None:
-        self.response = json.dumps({
-            "claims": [
-                {
-                    "text": "EigenLayer has 50 team members",
-                    "type": "fact",
-                    "entities": ["EigenLayer"],
-                    "confidence": 0.9,
-                    "relevance": 0.8,
-                },
-                {
-                    "text": "Google partnered with EigenLayer",
-                    "type": "fact",
-                    "entities": ["Google", "EigenLayer"],
-                    "confidence": 0.85,
-                    "relevance": 0.9,
-                },
-            ],
-            "relations": [
-                {
-                    "from": "Google",
-                    "to": "EigenLayer",
-                    "type": "PARTNERED_WITH",
-                    "fact": "Google partnered with EigenLayer for restaking",
-                }
-            ],
-        })
+        self.response = json.dumps(
+            {
+                "claims": [
+                    {
+                        "text": "EigenLayer has 50 team members",
+                        "type": "fact",
+                        "entities": ["EigenLayer"],
+                        "confidence": 0.9,
+                        "relevance": 0.8,
+                    },
+                    {
+                        "text": "Google partnered with EigenLayer",
+                        "type": "fact",
+                        "entities": ["Google", "EigenLayer"],
+                        "confidence": 0.85,
+                        "relevance": 0.9,
+                    },
+                ],
+                "relations": [
+                    {
+                        "from": "Google",
+                        "to": "EigenLayer",
+                        "type": "PARTNERED_WITH",
+                        "fact": "Google partnered with EigenLayer for restaking",
+                    }
+                ],
+            }
+        )
 
     async def __call__(self, prompt: str) -> str:
         return self.response
@@ -105,23 +106,40 @@ async def test_add_stores_episode(llm_store: Tensory) -> None:
 async def test_reevaluate_extracts_new_claims() -> None:
     """reevaluate() re-extracts from old episode with new context."""
     # First LLM returns DeFi claims
-    llm1_response = json.dumps({
-        "claims": [{"text": "EigenLayer DeFi team tracking", "type": "fact", "entities": ["EigenLayer"]}],
-        "relations": [],
-    })
+    llm1_response = json.dumps(
+        {
+            "claims": [
+                {
+                    "text": "EigenLayer DeFi team tracking",
+                    "type": "fact",
+                    "entities": ["EigenLayer"],
+                }
+            ],
+            "relations": [],
+        }
+    )
 
     class SwitchingLLM:
         def __init__(self) -> None:
             self.call_count = 0
+
         async def __call__(self, prompt: str) -> str:
             self.call_count += 1
             if self.call_count == 1:
                 return llm1_response
             # Second call returns different claims for new context
-            return json.dumps({
-                "claims": [{"text": "Google AI strategy partnership", "type": "fact", "entities": ["Google"]}],
-                "relations": [],
-            })
+            return json.dumps(
+                {
+                    "claims": [
+                        {
+                            "text": "Google AI strategy partnership",
+                            "type": "fact",
+                            "entities": ["Google"],
+                        }
+                    ],
+                    "relations": [],
+                }
+            )
 
     store = await Tensory.create(":memory:", llm=SwitchingLLM())
     ctx1 = await store.create_context(goal="Track DeFi teams")
@@ -147,11 +165,13 @@ async def test_reevaluate_nonexistent_episode(llm_store: Tensory) -> None:
 
 async def test_timeline_shows_claims(store: Tensory) -> None:
     """timeline() returns claims about an entity in chronological order."""
-    await store.add_claims([
-        Claim(text="EigenLayer v1 launched", entities=["EigenLayer"]),
-        Claim(text="EigenLayer v2 announced", entities=["EigenLayer"]),
-        Claim(text="Lido update", entities=["Lido"]),
-    ])
+    await store.add_claims(
+        [
+            Claim(text="EigenLayer v1 launched", entities=["EigenLayer"]),
+            Claim(text="EigenLayer v2 announced", entities=["EigenLayer"]),
+            Claim(text="Lido update", entities=["Lido"]),
+        ]
+    )
 
     tl = await store.timeline("EigenLayer")
     assert len(tl) == 2
@@ -160,10 +180,12 @@ async def test_timeline_shows_claims(store: Tensory) -> None:
 
 async def test_timeline_excludes_superseded(store: Tensory) -> None:
     """timeline() can exclude superseded claims."""
-    r = await store.add_claims([
-        Claim(text="EigenLayer has 50 members", entities=["EigenLayer"]),
-        Claim(text="EigenLayer has 60 members", entities=["EigenLayer"]),
-    ])
+    r = await store.add_claims(
+        [
+            Claim(text="EigenLayer has 50 members", entities=["EigenLayer"]),
+            Claim(text="EigenLayer has 60 members", entities=["EigenLayer"]),
+        ]
+    )
 
     # Manually supersede the first
     await supersede(r.claims[0].id, r.claims[1].id, store._db)
@@ -180,10 +202,12 @@ async def test_timeline_excludes_superseded(store: Tensory) -> None:
 
 async def test_supersede_marks_old_claim(store: Tensory) -> None:
     """supersede() marks old claim with timestamp and reference."""
-    r = await store.add_claims([
-        Claim(text="Old fact", entities=["X"]),
-        Claim(text="New fact", entities=["X"]),
-    ])
+    r = await store.add_claims(
+        [
+            Claim(text="Old fact", entities=["X"]),
+            Claim(text="New fact", entities=["X"]),
+        ]
+    )
 
     await supersede(r.claims[0].id, r.claims[1].id, store._db)
 
@@ -203,12 +227,14 @@ async def test_supersede_marks_old_claim(store: Tensory) -> None:
 
 async def test_decay_reduces_salience(store: Tensory) -> None:
     """apply_decay() reduces salience based on time elapsed."""
-    await store.add_claims([
-        Claim(text="Old claim", type=ClaimType.OPINION),
-    ])
+    await store.add_claims(
+        [
+            Claim(text="Old claim", type=ClaimType.OPINION),
+        ]
+    )
 
     # Manually set created_at to 30 days ago
-    thirty_days_ago = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+    thirty_days_ago = (datetime.now(UTC) - timedelta(days=30)).isoformat()
     await store._db.execute(
         "UPDATE claims SET created_at = ?, last_accessed = NULL",
         (thirty_days_ago,),
@@ -231,11 +257,22 @@ async def test_decay_reduces_salience(store: Tensory) -> None:
 async def test_consolidate_creates_observations(store: Tensory) -> None:
     """consolidate() groups claims with shared entities into observations."""
     # Create distinct claims sharing entities (avoid dedup triggering)
-    await store.add_claims([
-        Claim(text="EigenLayer announced a major protocol upgrade in March", entities=["EigenLayer", "Protocol"]),
-        Claim(text="The EigenLayer team presented their protocol roadmap at ETHDenver", entities=["EigenLayer", "Protocol"]),
-        Claim(text="EigenLayer protocol audit was completed by Trail of Bits", entities=["EigenLayer", "Protocol"]),
-    ])
+    await store.add_claims(
+        [
+            Claim(
+                text="EigenLayer announced a major protocol upgrade in March",
+                entities=["EigenLayer", "Protocol"],
+            ),
+            Claim(
+                text="The EigenLayer team presented their protocol roadmap at ETHDenver",
+                entities=["EigenLayer", "Protocol"],
+            ),
+            Claim(
+                text="EigenLayer protocol audit was completed by Trail of Bits",
+                entities=["EigenLayer", "Protocol"],
+            ),
+        ]
+    )
 
     obs = await store.consolidate(days=30, min_cluster=3)
     assert len(obs) >= 1
@@ -246,10 +283,12 @@ async def test_consolidate_creates_observations(store: Tensory) -> None:
 
 async def test_consolidate_ignores_small_clusters(store: Tensory) -> None:
     """consolidate() ignores clusters smaller than min_cluster."""
-    await store.add_claims([
-        Claim(text="Claim A", entities=["X", "Y"]),
-        Claim(text="Claim B", entities=["X", "Y"]),
-    ])
+    await store.add_claims(
+        [
+            Claim(text="Claim A", entities=["X", "Y"]),
+            Claim(text="Claim B", entities=["X", "Y"]),
+        ]
+    )
 
     obs = await store.consolidate(days=30, min_cluster=3)
     assert len(obs) == 0
@@ -283,9 +322,11 @@ async def test_source_stats_with_data(llm_store: Tensory) -> None:
 
 async def test_cleanup_removes_old_superseded(store: Tensory) -> None:
     """cleanup() removes old superseded low-salience claims."""
-    r = await store.add_claims([
-        Claim(text="Old superseded claim"),
-    ])
+    r = await store.add_claims(
+        [
+            Claim(text="Old superseded claim"),
+        ]
+    )
 
     # Supersede it and make it old
     await store._db.execute(

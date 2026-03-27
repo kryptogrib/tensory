@@ -172,15 +172,17 @@ def _parse_extraction(
 
         claim_type = _parse_claim_type(str(item.get("type", "fact")))
         temporal_val: Any = item.get("temporal")
-        claims.append(Claim(
-            text=claim_text,
-            type=claim_type,
-            entities=_parse_list(item.get("entities", [])),
-            temporal=str(temporal_val) if temporal_val else None,
-            confidence=_parse_float(item.get("confidence"), default=1.0),
-            relevance=_parse_float(item.get("relevance"), default=1.0),
-            context_id=context_id,
-        ))
+        claims.append(
+            Claim(
+                text=claim_text,
+                type=claim_type,
+                entities=_parse_list(item.get("entities", [])),
+                temporal=str(temporal_val) if temporal_val else None,
+                confidence=_parse_float(item.get("confidence"), default=1.0),
+                relevance=_parse_float(item.get("relevance"), default=1.0),
+                context_id=context_id,
+            )
+        )
 
     relations: list[EntityRelation] = []
     rels_data = cast(list[dict[str, Any]], data.get("relations", []))
@@ -190,12 +192,14 @@ def _parse_extraction(
         if not from_entity or not to_entity:
             continue
 
-        relations.append(EntityRelation(
-            from_entity=from_entity,
-            to_entity=to_entity,
-            rel_type=str(rel.get("type", "RELATED_TO")),
-            fact=str(rel.get("fact", "")),
-        ))
+        relations.append(
+            EntityRelation(
+                from_entity=from_entity,
+                to_entity=to_entity,
+                rel_type=str(rel.get("type", "RELATED_TO")),
+                fact=str(rel.get("fact", "")),
+            )
+        )
 
     return claims, relations
 

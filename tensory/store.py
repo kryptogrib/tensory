@@ -14,7 +14,7 @@ import json
 import logging
 import uuid
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -38,8 +38,14 @@ from tensory.schema import create_schema, migrate
 from tensory.search import hybrid_search, load_claim_entities, vector_search
 from tensory.temporal import (
     apply_decay as _apply_decay,
+)
+from tensory.temporal import (
     auto_supersede_on_collision,
+)
+from tensory.temporal import (
     cleanup as _cleanup,
+)
+from tensory.temporal import (
     timeline as _timeline,
 )
 
@@ -57,12 +63,41 @@ DECAY_RATES: dict[ClaimType, float] = {
 # ── Sentiment tagging (cognitive mechanism #4) ────────────────────────────
 
 SENTIMENT_WORDS: dict[str, set[str]] = {
-    "positive": {"partnership", "growth", "launch", "confirmed", "milestone",
-                 "approved", "success", "breakthrough", "upgrade", "adoption"},
-    "negative": {"departed", "hack", "exploit", "bankrupt", "crash", "lawsuit",
-                 "scam", "vulnerability", "downgrade", "shutdown", "breach"},
-    "urgent": {"breaking", "just in", "alert", "emergency", "critical",
-               "urgent", "immediately", "warning"},
+    "positive": {
+        "partnership",
+        "growth",
+        "launch",
+        "confirmed",
+        "milestone",
+        "approved",
+        "success",
+        "breakthrough",
+        "upgrade",
+        "adoption",
+    },
+    "negative": {
+        "departed",
+        "hack",
+        "exploit",
+        "bankrupt",
+        "crash",
+        "lawsuit",
+        "scam",
+        "vulnerability",
+        "downgrade",
+        "shutdown",
+        "breach",
+    },
+    "urgent": {
+        "breaking",
+        "just in",
+        "alert",
+        "emergency",
+        "critical",
+        "urgent",
+        "immediately",
+        "warning",
+    },
 }
 
 URGENCY_SALIENCE_BOOST = 0.3
@@ -200,8 +235,15 @@ class Tensory:
         await self._db.execute(
             """INSERT INTO contexts (id, goal, description, domain, user_id, active, created_at)
                VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (ctx.id, ctx.goal, ctx.description, ctx.domain, ctx.user_id,
-             1, ctx.created_at.isoformat()),
+            (
+                ctx.id,
+                ctx.goal,
+                ctx.description,
+                ctx.domain,
+                ctx.user_id,
+                1,
+                ctx.created_at.isoformat(),
+            ),
         )
         await self._db.commit()
         return ctx
@@ -329,9 +371,7 @@ class Tensory:
             await self._create_waypoint(claim)
 
             # ── Collision detection ───────────────────────────────────────
-            collisions = await find_collisions(
-                claim, self._db, graph_backend=self._graph
-            )
+            collisions = await find_collisions(claim, self._db, graph_backend=self._graph)
             if collisions:
                 await apply_salience_updates(collisions, self._db)
                 all_collisions.extend(collisions)
@@ -370,9 +410,7 @@ class Tensory:
             return
 
         try:
-            neighbors = await vector_search(
-                claim.embedding, self._db, limit=5
-            )
+            neighbors = await vector_search(claim.embedding, self._db, limit=5)
         except Exception:
             return
 
@@ -425,9 +463,7 @@ class Tensory:
             return 0.0  # can't compute without vectors
 
         try:
-            neighbors = await vector_search(
-                claim.embedding, self._db, limit=5
-            )
+            neighbors = await vector_search(claim.embedding, self._db, limit=5)
         except Exception:
             return 1.0  # empty DB or vec error = max surprise
 
@@ -502,9 +538,7 @@ class Tensory:
 
         # Cap priming memory (keep top 100 entities)
         if len(self._recent_entities) > 200:
-            self._recent_entities = Counter(
-                dict(self._recent_entities.most_common(100))
-            )
+            self._recent_entities = Counter(dict(self._recent_entities.most_common(100)))
 
         # ── Reinforce on access (OpenMemory pattern) ─────────────────────
         for result in results:
@@ -514,7 +548,7 @@ class Tensory:
                        last_accessed = ?,
                        salience = MIN(1.0, salience + ?)
                    WHERE id = ?""",
-                (datetime.now(timezone.utc).isoformat(), REINFORCE_BOOST, result.claim.id),
+                (datetime.now(UTC).isoformat(), REINFORCE_BOOST, result.claim.id),
             )
 
         # ── Context relevance ────────────────────────────────────────────
@@ -536,15 +570,20 @@ class Tensory:
     async def stats(self) -> dict[str, Any]:
         """Return summary statistics about the memory store."""
         counts: dict[str, int] = {}
-        for table in ("episodes", "contexts", "claims", "entities", "entity_relations", "waypoints"):
+        for table in (
+            "episodes",
+            "contexts",
+            "claims",
+            "entities",
+            "entity_relations",
+            "waypoints",
+        ):
             cursor = await self._db.execute(f"SELECT COUNT(*) FROM {table}")  # noqa: S608
             row = await cursor.fetchone()
             counts[table] = row[0] if row else 0
 
         # Claims by type
-        cursor = await self._db.execute(
-            "SELECT type, COUNT(*) FROM claims GROUP BY type"
-        )
+        cursor = await self._db.execute("SELECT type, COUNT(*) FROM claims GROUP BY type")
         type_rows = await cursor.fetchall()
         claims_by_type = {row[0]: row[1] for row in type_rows}
 
@@ -593,25 +632,33 @@ class Tensory:
         await self._db.execute(
             """INSERT INTO episodes (id, raw_text, source, source_url, fetched_at)
                VALUES (?, ?, ?, ?, ?)""",
-            (episode.id, episode.raw_text, episode.source,
-             episode.source_url, episode.fetched_at.isoformat()),
+            (
+                episode.id,
+                episode.raw_text,
+                episode.source,
+                episode.source_url,
+                episode.fetched_at.isoformat(),
+            ),
         )
         await self._db.commit()
 
         # Extract claims via LLM
-        claims, relations = await extract_claims(
-            text, self._llm, context=context
-        )
+        claims, relations = await extract_claims(text, self._llm, context=context)
 
         # Store relations in graph
         for rel in relations:
             from_id = await self._graph.add_entity(rel.from_entity)
             to_id = await self._graph.add_entity(rel.to_entity)
-            await self._graph.add_edge(from_id, to_id, rel.rel_type, {
-                "fact": rel.fact,
-                "episode_id": episode.id,
-                "confidence": rel.confidence,
-            })
+            await self._graph.add_edge(
+                from_id,
+                to_id,
+                rel.rel_type,
+                {
+                    "fact": rel.fact,
+                    "episode_id": episode.id,
+                    "confidence": rel.confidence,
+                },
+            )
 
         # Ingest claims through the standard pipeline
         result = await self.add_claims(
@@ -643,9 +690,7 @@ class Tensory:
             raise ValueError(msg)
 
         # Fetch episode
-        cursor = await self._db.execute(
-            "SELECT * FROM episodes WHERE id = ?", (episode_id,)
-        )
+        cursor = await self._db.execute("SELECT * FROM episodes WHERE id = ?", (episode_id,))
         row = await cursor.fetchone()
         if row is None:
             msg = f"Episode {episode_id} not found"
@@ -654,19 +699,22 @@ class Tensory:
         raw_text = str(row["raw_text"])
 
         # Extract with new context
-        claims, relations = await extract_claims(
-            raw_text, self._llm, context=context
-        )
+        claims, relations = await extract_claims(raw_text, self._llm, context=context)
 
         # Store relations
         for rel in relations:
             from_id = await self._graph.add_entity(rel.from_entity)
             to_id = await self._graph.add_entity(rel.to_entity)
-            await self._graph.add_edge(from_id, to_id, rel.rel_type, {
-                "fact": rel.fact,
-                "episode_id": episode_id,
-                "confidence": rel.confidence,
-            })
+            await self._graph.add_edge(
+                from_id,
+                to_id,
+                rel.rel_type,
+                {
+                    "fact": rel.fact,
+                    "episode_id": episode_id,
+                    "confidence": rel.confidence,
+                },
+            )
 
         result = await self.add_claims(
             claims,
@@ -694,8 +742,10 @@ class Tensory:
             limit: Maximum claims to return.
         """
         return await _timeline(
-            entity_name, self._db,
-            include_superseded=include_superseded, limit=limit,
+            entity_name,
+            self._db,
+            include_superseded=include_superseded,
+            limit=limit,
         )
 
     # ── cleanup() — remove old low-salience claims ────────────────────────
@@ -726,7 +776,8 @@ class Tensory:
             min_cluster: Minimum claims per cluster.
         """
         from datetime import timedelta
-        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+
+        cutoff = (datetime.now(UTC) - timedelta(days=days)).isoformat()
 
         # Find claim pairs sharing ≥2 entities in the last N days
         cursor = await self._db.execute(
@@ -936,5 +987,3 @@ class Tensory:
             "top_entities": top_entities,
             "claim_frequency": frequency,
         }
-
-
