@@ -31,8 +31,8 @@ class IngestStats:
     total_entities: int = 0
     total_collisions: int = 0
     # dia_id → episode_id for retrieval evaluation
-    dia_to_episode: dict[str, str] = field(default_factory=dict)
-    errors: list[str] = field(default_factory=list)
+    dia_to_episode: dict[str, str] = field(default_factory=lambda: dict[str, str]())
+    errors: list[str] = field(default_factory=lambda: list[str]())
 
 
 async def ingest_conversation(

@@ -13,7 +13,7 @@ import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 LOCOMO_URL = "https://raw.githubusercontent.com/snap-research/locomo/main/data/locomo10.json"
 CACHE_PATH = Path("benchmarks/locomo/.cache/locomo10.json")
@@ -43,7 +43,7 @@ class Session:
 
     session_num: int
     date_time: str
-    turns: list[Turn] = field(default_factory=list)
+    turns: list[Turn] = field(default_factory=lambda: list[Turn]())
 
     def to_text(self) -> str:
         """Serialize session for ingestion into Tensory."""
@@ -85,55 +85,61 @@ class Conversation:
     sample_id: str
     speaker_a: str
     speaker_b: str
-    sessions: list[Session] = field(default_factory=list)
-    qa_items: list[QAItem] = field(default_factory=list)
+    sessions: list[Session] = field(default_factory=lambda: list[Session]())
+    qa_items: list[QAItem] = field(default_factory=lambda: list[QAItem]())
 
 
 def parse_conversation(raw: dict[str, Any]) -> Conversation:  # noqa: C901
     """Parse a raw LoCoMo JSON entry into typed Conversation."""
-    conv_data = raw.get("conversation", {})
-    speaker_a = conv_data.get("speaker_a", "")
-    speaker_b = conv_data.get("speaker_b", "")
+    conv_data: dict[str, Any] = raw.get("conversation", {})
+    speaker_a: str = str(conv_data.get("speaker_a", ""))
+    speaker_b: str = str(conv_data.get("speaker_b", ""))
 
     sessions: list[Session] = []
     session_pattern = re.compile(r"^session_(\d+)$")
 
-    for key, value in conv_data.items():
-        match = session_pattern.match(key)
-        if match and isinstance(value, list):
-            num = int(match.group(1))
-            date_key = f"session_{num}_date_time"
-            date_time = conv_data.get(date_key, "")
+    for key in conv_data:
+        match = session_pattern.match(str(key))
+        if not match:
+            continue
+        raw_turns = conv_data[key]
+        if not isinstance(raw_turns, list):
+            continue
 
-            turns = []
-            for turn_data in value:
-                if isinstance(turn_data, dict) and "text" in turn_data:
-                    turns.append(
-                        Turn(
-                            speaker=turn_data.get("speaker", ""),
-                            dia_id=turn_data.get("dia_id", ""),
-                            text=turn_data.get("text", ""),
-                        )
+        num = int(match.group(1))
+        date_key = f"session_{num}_date_time"
+        date_time = str(conv_data.get(date_key, ""))
+
+        turns: list[Turn] = []
+        turn_list = cast(list[dict[str, Any]], raw_turns)
+        for td in turn_list:
+            if "text" in td:
+                turns.append(
+                    Turn(
+                        speaker=str(td.get("speaker", "")),
+                        dia_id=str(td.get("dia_id", "")),
+                        text=str(td.get("text", "")),
                     )
+                )
 
-            if turns:
-                sessions.append(Session(session_num=num, date_time=date_time, turns=turns))
+        if turns:
+            sessions.append(Session(session_num=num, date_time=date_time, turns=turns))
 
     sessions.sort(key=lambda s: s.session_num)
 
     qa_items: list[QAItem] = []
-    for qa in raw.get("qa", []):
-        category = qa.get("category", 0)
-        if category == 5:
-            answer = "unanswerable"
-        else:
-            answer = qa.get("answer", "")
+    for qa_raw in raw.get("qa", []):
+        qa: dict[str, Any] = qa_raw
+        category = int(qa.get("category", 0))
+        answer = "unanswerable" if category == 5 else str(qa.get("answer", ""))
+
+        evidence = [str(e) for e in cast(list[Any], qa.get("evidence", []))]
 
         qa_items.append(
             QAItem(
-                question=qa.get("question", ""),
+                question=str(qa.get("question", "")),
                 answer=answer,
-                evidence=qa.get("evidence", []),
+                evidence=evidence,
                 category=category,
             )
         )
@@ -149,6 +155,7 @@ def parse_conversation(raw: dict[str, Any]) -> Conversation:  # noqa: C901
 
 async def load_locomo(conversation_idx: int = 0) -> Conversation:
     """Download (with cache) and parse one LoCoMo conversation."""
+    data: list[dict[str, Any]]
     if CACHE_PATH.exists():
         data = json.loads(CACHE_PATH.read_text())
     else:

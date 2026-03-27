@@ -14,6 +14,7 @@ import re
 import string
 from collections import Counter
 from dataclasses import dataclass, field
+from typing import Any
 
 from benchmarks.locomo.data import CATEGORY_NAMES
 
@@ -58,7 +59,7 @@ def compute_f1(gold: str, predicted: str) -> float:
 class BenchmarkResult:
     """Accumulates per-question F1 scores and computes summary."""
 
-    scores: list[dict[str, object]] = field(default_factory=list)
+    scores: list[dict[str, Any]] = field(default_factory=lambda: list[dict[str, Any]]())
 
     def add(
         self,
@@ -80,9 +81,9 @@ class BenchmarkResult:
         })
         return f1
 
-    def summary(self) -> dict[str, dict[str, object]]:
+    def summary(self) -> dict[str, dict[str, Any]]:
         """Per-category and overall F1 summary."""
-        result: dict[str, dict[str, object]] = {}
+        result: dict[str, dict[str, Any]] = {}
 
         for cat_id, cat_name in CATEGORY_NAMES.items():
             cat_scores = [s for s in self.scores if s["category"] == cat_id]

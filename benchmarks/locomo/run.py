@@ -25,13 +25,14 @@ import json
 import logging
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from benchmarks.locomo.answer import answer_questions
 from benchmarks.locomo.data import load_locomo
 from benchmarks.locomo.ingest import ingest_conversation
 from examples.llm_adapters import anthropic_llm
 from tensory.embedder import OpenAIEmbedder
+from tensory.extract import LLMProtocol
 from tensory.store import Tensory
 
 logger = logging.getLogger(__name__)
@@ -74,18 +75,18 @@ async def run_benchmark(
     api_key = os.environ.get("ANTHROPIC_API_KEY")
 
     # Haiku for extraction (cheap)
-    extraction_llm = anthropic_llm(
+    extraction_llm = cast(LLMProtocol, anthropic_llm(
         model="claude-haiku-4-5-20251001",
         api_key=api_key,
         base_url=base_url,
-    )
+    ))
 
     # Sonnet for answering (quality)
-    answer_llm = anthropic_llm(
+    answer_llm = cast(LLMProtocol, anthropic_llm(
         model="claude-sonnet-4-20250514",
         api_key=api_key,
         base_url=base_url,
-    )
+    ))
 
     # OpenAI embeddings
     embedder = OpenAIEmbedder(
