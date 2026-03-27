@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import logging
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
@@ -96,6 +97,22 @@ async def hybrid_search(
 # ── Individual search channels ────────────────────────────────────────────
 
 
+def _sanitize_fts_query(query: str) -> str:
+    """Sanitize a query string for FTS5 MATCH.
+
+    FTS5 treats characters like ?, ', *, (, ), ", -, + as operators.
+    We strip them and join remaining tokens with implicit AND.
+    """
+    # Remove FTS5 special characters
+    cleaned = re.sub(r'[?\'\"*()^\-+~:{}[\]|!@#$%&]', " ", query)
+    # Collapse whitespace, strip
+    tokens = cleaned.split()
+    if not tokens:
+        return ""
+    # Quote each token to prevent FTS5 interpretation
+    return " ".join(f'"{t}"' for t in tokens if t)
+
+
 async def fts_search(
     query: str,
     db: aiosqlite.Connection,
@@ -104,6 +121,10 @@ async def fts_search(
     limit: int = 20,
 ) -> list[SearchResult]:
     """Full-text search via FTS5."""
+    safe_query = _sanitize_fts_query(query)
+    if not safe_query:
+        return []
+
     cursor = await db.execute(
         """
         SELECT c.*, fts.rank
@@ -114,7 +135,7 @@ async def fts_search(
         ORDER BY fts.rank
         LIMIT ?
         """,
-        (query, limit),
+        (safe_query, limit),
     )
     rows = await cursor.fetchall()
 

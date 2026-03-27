@@ -221,6 +221,13 @@ def _print_results(results: dict[str, Any]) -> None:
 
 def main() -> None:
     """CLI entry point."""
+    # Load .env file if present (for API keys)
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except ImportError:
+        pass
+
     parser = argparse.ArgumentParser(description="Run LoCoMo benchmark on Tensory")
     parser.add_argument(
         "--conversation", type=int, default=0, help="Conversation index (0-9)"

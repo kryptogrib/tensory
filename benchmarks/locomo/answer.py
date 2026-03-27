@@ -41,13 +41,18 @@ ANSWER:"""
 
 
 def _format_claims(results: list[SearchResult]) -> str:
-    """Format search results as numbered claims for the prompt."""
+    """Format search results as numbered claims for the prompt.
+
+    Includes temporal metadata when available, so the answer LLM
+    can reason about dates and time references.
+    """
     if not results:
         return "(no relevant claims found)"
 
     lines: list[str] = []
     for i, r in enumerate(results, 1):
-        lines.append(f"{i}. [score={r.score:.3f}] {r.claim.text}")
+        temporal = f" [when: {r.claim.temporal}]" if r.claim.temporal else ""
+        lines.append(f"{i}. [score={r.score:.3f}]{temporal} {r.claim.text}")
     return "\n".join(lines)
 
 
