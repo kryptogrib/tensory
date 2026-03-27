@@ -86,3 +86,50 @@ def test_session_to_text() -> None:
     assert "Alice: Hello!" in text
     assert "Bob: Hi!" in text
     assert "1:00 pm on 1 Jan, 2023" in text
+
+
+from benchmarks.locomo.score import normalize_answer, compute_f1, BenchmarkResult
+
+
+def test_normalize_answer_strips_articles() -> None:
+    assert normalize_answer("The United States") == "united states"
+    assert normalize_answer("  a   cat  ") == "cat"
+    assert normalize_answer("An Apple") == "apple"
+
+
+def test_normalize_answer_strips_punctuation() -> None:
+    assert normalize_answer("hello, world!") == "hello world"
+
+
+def test_f1_exact_match() -> None:
+    assert compute_f1("Alice", "Alice") == 1.0
+
+
+def test_f1_partial_match() -> None:
+    score = compute_f1("Alice went home", "Alice")
+    assert 0.4 < score < 0.6
+
+
+def test_f1_no_match() -> None:
+    assert compute_f1("Alice", "Bob") == 0.0
+
+
+def test_f1_adversarial_correct() -> None:
+    assert compute_f1("unanswerable", "unanswerable") == 1.0
+
+
+def test_f1_adversarial_wrong() -> None:
+    assert compute_f1("unanswerable", "Alice went home") == 0.0
+
+
+def test_benchmark_result_summary() -> None:
+    result = BenchmarkResult()
+    result.add(category=1, predicted="Alice", gold="Alice")
+    result.add(category=1, predicted="Bob", gold="Charlie")
+    result.add(category=5, predicted="unanswerable", gold="unanswerable")
+
+    summary = result.summary()
+    assert summary["overall"]["count"] == 3
+    assert summary["single-hop"]["count"] == 2
+    assert summary["adversarial"]["count"] == 1
+    assert summary["adversarial"]["f1"] == 1.0
