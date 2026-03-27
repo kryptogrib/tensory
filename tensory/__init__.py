@@ -13,6 +13,7 @@ Usage::
 """
 
 from tensory.embedder import Embedder, NullEmbedder, OpenAIEmbedder
+from tensory.extract import LLMProtocol
 from tensory.models import (
     Claim,
     ClaimType,
@@ -31,6 +32,7 @@ __all__ = [
     "Collision",
     "Context",
     "Embedder",
+    "LLMProtocol",
     "EntityRelation",
     "Episode",
     "IngestResult",

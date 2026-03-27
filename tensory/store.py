@@ -4,6 +4,8 @@ Phase 1: create_context, add_claims, search (FTS only), stats.
 Phase 2: embed on ingest, hybrid search (vector + FTS + graph + RRF),
          surprise score, priming, reinforce-on-access.
 Phase 3: dedup, collision detection + salience updates, waypoint creation.
+Phase 4: add (text → extract), reevaluate, timeline, consolidate,
+         source_stats, cleanup.
 """
 
 from __future__ import annotations
@@ -21,17 +23,25 @@ import aiosqlite
 from tensory.collisions import apply_salience_updates, find_collisions
 from tensory.dedup import MinHashDedup
 from tensory.embedder import Embedder, NullEmbedder
+from tensory.extract import LLMProtocol, extract_claims
 from tensory.graph import GraphBackend, SQLiteGraphBackend
 from tensory.models import (
     Claim,
     ClaimType,
     Collision,
     Context,
+    Episode,
     IngestResult,
     SearchResult,
 )
 from tensory.schema import create_schema, migrate
 from tensory.search import hybrid_search, load_claim_entities, vector_search
+from tensory.temporal import (
+    apply_decay as _apply_decay,
+    auto_supersede_on_collision,
+    cleanup as _cleanup,
+    timeline as _timeline,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -112,10 +122,12 @@ class Tensory:
         self,
         db: aiosqlite.Connection,
         *,
+        llm: LLMProtocol | None = None,
         embedder: Embedder | None = None,
         graph_backend: GraphBackend | None = None,
     ) -> None:
         self._db = db
+        self._llm = llm
         self._embedder: Embedder = embedder or NullEmbedder()
         self._graph: GraphBackend = graph_backend or SQLiteGraphBackend(db)
         self._dedup = MinHashDedup()
@@ -128,6 +140,7 @@ class Tensory:
         cls,
         path: str | Path = ":memory:",
         *,
+        llm: LLMProtocol | None = None,
         embedder: Embedder | None = None,
         graph_backend: GraphBackend | None = None,
         embedding_dim: int | None = None,
@@ -136,6 +149,7 @@ class Tensory:
 
         Args:
             path: SQLite database path. Use \":memory:\" for testing.
+            llm: LLM callable for claim extraction (prompt → response).
             embedder: Embedding backend (default: NullEmbedder).
             graph_backend: Optional custom graph backend (default: SQLiteGraphBackend).
             embedding_dim: Vector dimension. Auto-detected from embedder if not set.
@@ -149,7 +163,7 @@ class Tensory:
         await migrate(db)
 
         backend = graph_backend or SQLiteGraphBackend(db)
-        instance = cls(db, embedder=resolved_embedder, graph_backend=backend)
+        instance = cls(db, llm=llm, embedder=resolved_embedder, graph_backend=backend)
 
         # Check if sqlite-vec is available
         try:
@@ -321,6 +335,13 @@ class Tensory:
             if collisions:
                 await apply_salience_updates(collisions, self._db)
                 all_collisions.extend(collisions)
+
+                # Auto-supersede on very high collision scores
+                for col in collisions:
+                    if col.type == "supersedes":
+                        await auto_supersede_on_collision(
+                            claim.id, col.claim_b.id, col.score, self._db
+                        )
 
             # Add to existing texts for intra-batch dedup
             existing_texts.append(claim.text)
@@ -536,6 +557,384 @@ class Tensory:
             "counts": counts,
             "claims_by_type": claims_by_type,
             "avg_salience": round(avg_salience, 4),
+        }
+
+    # ── add() — raw text → extract → ingest (Phase 4) ────────────────────
+
+    async def add(
+        self,
+        text: str,
+        *,
+        source: str = "",
+        source_url: str | None = None,
+        context: Context | None = None,
+    ) -> IngestResult:
+        """Ingest raw text: store episode → LLM extract → add_claims.
+
+        This is the primary high-level API. Requires an LLM to be configured.
+
+        Args:
+            text: Raw text to extract claims from.
+            source: Source identifier (e.g. "reddit:r/defi").
+            source_url: Full URL of the source.
+            context: Research goal for context-aware extraction.
+        """
+        if not self._llm:
+            msg = "LLM required for add(). Use add_claims() for pre-extracted claims."
+            raise ValueError(msg)
+
+        # Store episode (Layer 0 — raw never dies)
+        episode = Episode(
+            id=uuid.uuid4().hex,
+            raw_text=text,
+            source=source,
+            source_url=source_url,
+        )
+        await self._db.execute(
+            """INSERT INTO episodes (id, raw_text, source, source_url, fetched_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            (episode.id, episode.raw_text, episode.source,
+             episode.source_url, episode.fetched_at.isoformat()),
+        )
+        await self._db.commit()
+
+        # Extract claims via LLM
+        claims, relations = await extract_claims(
+            text, self._llm, context=context
+        )
+
+        # Store relations in graph
+        for rel in relations:
+            from_id = await self._graph.add_entity(rel.from_entity)
+            to_id = await self._graph.add_entity(rel.to_entity)
+            await self._graph.add_edge(from_id, to_id, rel.rel_type, {
+                "fact": rel.fact,
+                "episode_id": episode.id,
+                "confidence": rel.confidence,
+            })
+
+        # Ingest claims through the standard pipeline
+        result = await self.add_claims(
+            claims,
+            episode_id=episode.id,
+            context_id=context.id if context else None,
+        )
+
+        result.relations = relations
+        return result
+
+    # ── reevaluate() — re-extract from old episode with new context ───────
+
+    async def reevaluate(
+        self,
+        episode_id: str,
+        context: Context,
+    ) -> IngestResult:
+        """Re-extract claims from a stored episode through a new context lens.
+
+        Same raw text → different claims depending on research goal.
+
+        Args:
+            episode_id: ID of the stored episode to re-extract from.
+            context: New research goal to extract through.
+        """
+        if not self._llm:
+            msg = "LLM required for reevaluate()."
+            raise ValueError(msg)
+
+        # Fetch episode
+        cursor = await self._db.execute(
+            "SELECT * FROM episodes WHERE id = ?", (episode_id,)
+        )
+        row = await cursor.fetchone()
+        if row is None:
+            msg = f"Episode {episode_id} not found"
+            raise ValueError(msg)
+
+        raw_text = str(row["raw_text"])
+
+        # Extract with new context
+        claims, relations = await extract_claims(
+            raw_text, self._llm, context=context
+        )
+
+        # Store relations
+        for rel in relations:
+            from_id = await self._graph.add_entity(rel.from_entity)
+            to_id = await self._graph.add_entity(rel.to_entity)
+            await self._graph.add_edge(from_id, to_id, rel.rel_type, {
+                "fact": rel.fact,
+                "episode_id": episode_id,
+                "confidence": rel.confidence,
+            })
+
+        result = await self.add_claims(
+            claims,
+            episode_id=episode_id,
+            context_id=context.id,
+        )
+
+        result.relations = relations
+        return result
+
+    # ── timeline() — entity history ───────────────────────────────────────
+
+    async def timeline(
+        self,
+        entity_name: str,
+        *,
+        include_superseded: bool = True,
+        limit: int = 50,
+    ) -> list[Claim]:
+        """Show how facts about an entity evolved over time.
+
+        Args:
+            entity_name: Entity to trace.
+            include_superseded: Include superseded claims in timeline.
+            limit: Maximum claims to return.
+        """
+        return await _timeline(
+            entity_name, self._db,
+            include_superseded=include_superseded, limit=limit,
+        )
+
+    # ── cleanup() — remove old low-salience claims ────────────────────────
+
+    async def cleanup(self, *, max_age_days: int = 90) -> int:
+        """Remove low-salience superseded claims past max age.
+
+        Does NOT delete episodes (raw text preserved forever).
+        """
+        await _apply_decay(self._db)
+        return await _cleanup(self._db, max_age_days=max_age_days)
+
+    # ── consolidate() — cluster claims into observations ──────────────────
+
+    async def consolidate(
+        self,
+        *,
+        days: int = 7,
+        min_cluster: int = 3,
+    ) -> list[Claim]:
+        """Cluster recent claims into OBSERVATION summaries (no LLM).
+
+        Uses Union-Find to group claims sharing ≥2 entities.
+        Generates template-based observation claims.
+
+        Args:
+            days: Look back window in days.
+            min_cluster: Minimum claims per cluster.
+        """
+        from datetime import timedelta
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+
+        # Find claim pairs sharing ≥2 entities in the last N days
+        cursor = await self._db.execute(
+            """
+            SELECT ce1.claim_id AS c1, ce2.claim_id AS c2, COUNT(*) AS shared
+            FROM claim_entities ce1
+            JOIN claim_entities ce2 ON ce1.entity_id = ce2.entity_id
+            JOIN claims cl1 ON ce1.claim_id = cl1.id
+            JOIN claims cl2 ON ce2.claim_id = cl2.id
+            WHERE ce1.claim_id < ce2.claim_id
+              AND cl1.created_at > ? AND cl2.created_at > ?
+              AND cl1.superseded_at IS NULL AND cl2.superseded_at IS NULL
+            GROUP BY ce1.claim_id, ce2.claim_id
+            HAVING shared >= 2
+            """,
+            (cutoff, cutoff),
+        )
+        pairs = await cursor.fetchall()
+
+        if not pairs:
+            return []
+
+        # Union-Find clustering
+        parent: dict[str, str] = {}
+
+        def find(x: str) -> str:
+            while parent.get(x, x) != x:
+                parent[x] = parent.get(parent[x], parent[x])
+                x = parent[x]
+            return x
+
+        def union(a: str, b: str) -> None:
+            ra, rb = find(a), find(b)
+            if ra != rb:
+                parent[ra] = rb
+
+        for row in pairs:
+            union(str(row[0]), str(row[1]))
+
+        # Group into clusters
+        clusters: dict[str, list[str]] = {}
+        all_claim_ids: set[str] = set()
+        for row in pairs:
+            all_claim_ids.add(str(row[0]))
+            all_claim_ids.add(str(row[1]))
+
+        for cid in all_claim_ids:
+            root = find(cid)
+            clusters.setdefault(root, []).append(cid)
+
+        # Filter by min_cluster and generate observations
+        observations: list[Claim] = []
+        for cluster_ids in clusters.values():
+            if len(cluster_ids) < min_cluster:
+                continue
+
+            # Collect entities from cluster
+            placeholders = ", ".join("?" for _ in cluster_ids)
+            ent_cursor = await self._db.execute(
+                f"""SELECT DISTINCT e.name
+                    FROM claim_entities ce
+                    JOIN entities e ON ce.entity_id = e.id
+                    WHERE ce.claim_id IN ({placeholders})""",
+                cluster_ids,
+            )
+            ent_rows = await ent_cursor.fetchall()
+            entities = [str(r[0]) for r in ent_rows]
+
+            # Collect sources
+            src_cursor = await self._db.execute(
+                f"""SELECT DISTINCT e.source
+                    FROM claims c
+                    JOIN episodes e ON c.episode_id = e.id
+                    WHERE c.id IN ({placeholders}) AND e.source != ''""",
+                cluster_ids,
+            )
+            src_rows = await src_cursor.fetchall()
+            sources = [str(r[0]) for r in src_rows] or ["unknown"]
+
+            # Template-based observation (no LLM)
+            obs_text = (
+                f"Pattern: {len(cluster_ids)} claims about "
+                f"{', '.join(entities[:5])} from {', '.join(sources[:3])} "
+                f"over {days} days"
+            )
+
+            obs = Claim(
+                text=obs_text,
+                type=ClaimType.OBSERVATION,
+                entities=entities[:10],
+                confidence=0.6,
+                salience=0.8,
+            )
+            result = await self.add_claims([obs])
+            if result.claims:
+                observations.extend(result.claims)
+
+        return observations
+
+    # ── source_stats() — per-source reliability profile ───────────────────
+
+    async def source_stats(self, source: str) -> dict[str, Any]:
+        """Get reliability profile for a source.
+
+        Returns aggregated stats useful for calibrating trust:
+        total_claims, avg_salience, confirmed_ratio, avg_surprise,
+        sentiment_profile, top_entities, claim_frequency.
+        """
+        # Total claims from this source
+        cursor = await self._db.execute(
+            """SELECT COUNT(*), AVG(c.salience)
+               FROM claims c
+               JOIN episodes e ON c.episode_id = e.id
+               WHERE e.source = ?""",
+            (source,),
+        )
+        row = await cursor.fetchone()
+        total = int(row[0]) if row and row[0] else 0
+        avg_salience = float(row[1]) if row and row[1] else 0.0
+
+        if total == 0:
+            return {
+                "source": source,
+                "total_claims": 0,
+                "avg_salience": 0.0,
+                "confirmed_ratio": 0.0,
+                "avg_surprise": 0.0,
+                "sentiment_profile": {},
+                "top_entities": [],
+                "claim_frequency": 0.0,
+            }
+
+        # Confirmed ratio (claims with salience > 0.8 / total)
+        cursor = await self._db.execute(
+            """SELECT COUNT(*)
+               FROM claims c
+               JOIN episodes e ON c.episode_id = e.id
+               WHERE e.source = ? AND c.salience > 0.8""",
+            (source,),
+        )
+        row = await cursor.fetchone()
+        confirmed = int(row[0]) if row and row[0] else 0
+
+        # Average surprise
+        cursor = await self._db.execute(
+            """SELECT AVG(json_extract(c.metadata, '$.surprise'))
+               FROM claims c
+               JOIN episodes e ON c.episode_id = e.id
+               WHERE e.source = ?""",
+            (source,),
+        )
+        row = await cursor.fetchone()
+        avg_surprise = float(row[0]) if row and row[0] else 0.0
+
+        # Sentiment profile
+        cursor = await self._db.execute(
+            """SELECT json_extract(c.metadata, '$.sentiment') AS sent, COUNT(*)
+               FROM claims c
+               JOIN episodes e ON c.episode_id = e.id
+               WHERE e.source = ?
+               GROUP BY sent""",
+            (source,),
+        )
+        sent_rows = await cursor.fetchall()
+        sentiment_profile = {str(r[0]): int(r[1]) for r in sent_rows if r[0]}
+
+        # Top entities
+        cursor = await self._db.execute(
+            """SELECT en.name, COUNT(*) as cnt
+               FROM claims c
+               JOIN episodes e ON c.episode_id = e.id
+               JOIN claim_entities ce ON c.id = ce.claim_id
+               JOIN entities en ON ce.entity_id = en.id
+               WHERE e.source = ?
+               GROUP BY en.name
+               ORDER BY cnt DESC
+               LIMIT 10""",
+            (source,),
+        )
+        ent_rows = await cursor.fetchall()
+        top_entities = [str(r[0]) for r in ent_rows]
+
+        # Claim frequency (claims per day)
+        cursor = await self._db.execute(
+            """SELECT MIN(e.fetched_at), MAX(e.fetched_at)
+               FROM episodes e WHERE e.source = ?""",
+            (source,),
+        )
+        row = await cursor.fetchone()
+        frequency = 0.0
+        if row and row[0] and row[1]:
+            try:
+                first = datetime.fromisoformat(str(row[0]))
+                last = datetime.fromisoformat(str(row[1]))
+                days_span = max(1, (last - first).days)
+                frequency = round(total / days_span, 2)
+            except (ValueError, TypeError):
+                pass
+
+        return {
+            "source": source,
+            "total_claims": total,
+            "avg_salience": round(avg_salience, 4),
+            "confirmed_ratio": round(confirmed / max(total, 1), 4),
+            "avg_surprise": round(avg_surprise, 4),
+            "sentiment_profile": sentiment_profile,
+            "top_entities": top_entities,
+            "claim_frequency": frequency,
         }
 
 
