@@ -48,11 +48,56 @@ async def get_store() -> Any:
 
         # LLM для extraction — через прокси (CLIProxyAPI)
         llm = _make_llm()
+        embedder = _make_embedder()
         db_path = os.environ.get("TENSORY_DB", "tensory_memory.db")
 
-        _store = await Tensory.create(db_path, llm=llm)
-        logger.info("tensory store initialized: %s", db_path)
+        _store = await Tensory.create(db_path, llm=llm, embedder=embedder)
+        health = _check_health(_store, llm, embedder)
+        logger.info("tensory store initialized: %s | health: %s", db_path, json.dumps(health))
         return _store
+
+
+def _check_health(store: Any, llm: Any, embedder: Any) -> dict[str, Any]:
+    """Проверяет какие компоненты активны. Логирует WARNING для отключённых."""
+    from tensory.embedder import NullEmbedder
+
+    health: dict[str, Any] = {
+        "llm": llm is not None,
+        "embedder": not isinstance(store._embedder, NullEmbedder),
+        "vec_available": getattr(store, "_vec_available", False),
+        "db_path": str(getattr(store, "_path", "unknown")),
+    }
+
+    # Громкие предупреждения для отключённых компонентов
+    if not health["llm"]:
+        logger.warning("⚠️  LLM DISABLED — tensory_add() will fail (no claim extraction)")
+    if not health["embedder"]:
+        logger.warning("⚠️  EMBEDDER DISABLED — no vector search, no waypoints, no surprise scoring")
+    if not health["vec_available"]:
+        logger.warning("⚠️  sqlite-vec UNAVAILABLE — vector search impossible even with embedder")
+
+    active = sum(1 for v in health.values() if v is True)
+    total = 3  # llm, embedder, vec
+    if active == total:
+        logger.info("✅ All %d components active", total)
+    else:
+        logger.warning("⚠️  Only %d/%d components active — memory running in degraded mode", active, total)
+
+    return health
+
+
+def _make_embedder() -> Any:
+    """Создаёт OpenAIEmbedder если есть OPENAI_API_KEY, иначе NullEmbedder."""
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        logger.warning("No OPENAI_API_KEY — using NullEmbedder (no vector search)")
+        return None  # Tensory.create() подставит NullEmbedder
+
+    from tensory.embedder import OpenAIEmbedder
+
+    base_url = os.environ.get("OPENAI_BASE_URL")
+    logger.info("OpenAIEmbedder initialized (base_url=%s)", base_url or "default")
+    return OpenAIEmbedder(api_key=api_key, base_url=base_url)
 
 
 def _make_llm() -> Any:
@@ -176,10 +221,52 @@ async def tensory_timeline(entity: str) -> str:
 
 @mcp.tool()
 async def tensory_stats() -> str:
-    """Get memory statistics."""
+    """Get memory statistics and health status."""
     store = await get_store()
     stats = await store.stats()
+
+    # Добавляем health info к статистике
+    from tensory.embedder import NullEmbedder
+
+    stats["health"] = {
+        "llm": store._llm is not None,
+        "embedder": not isinstance(store._embedder, NullEmbedder),
+        "vec_available": getattr(store, "_vec_available", False),
+    }
     return json.dumps(stats)
+
+
+@mcp.tool()
+async def tensory_health() -> str:
+    """Check which memory components are active. Use this to diagnose issues."""
+    store = await get_store()
+    from tensory.embedder import NullEmbedder
+
+    embedder_type = type(store._embedder).__name__
+    health = {
+        "llm": {
+            "active": store._llm is not None,
+            "detail": "LLM extraction for tensory_add()" if store._llm else "DISABLED — tensory_add() will fail",
+        },
+        "embedder": {
+            "active": not isinstance(store._embedder, NullEmbedder),
+            "type": embedder_type,
+            "detail": f"{embedder_type} (dim={store._embedder.dim})",
+        },
+        "vec_available": {
+            "active": getattr(store, "_vec_available", False),
+            "detail": "sqlite-vec loaded" if getattr(store, "_vec_available", False) else "sqlite-vec NOT loaded",
+        },
+        "features": {
+            "vector_search": not isinstance(store._embedder, NullEmbedder) and getattr(store, "_vec_available", False),
+            "fts_search": True,
+            "graph_search": True,
+            "collision_detection": True,
+            "waypoints": not isinstance(store._embedder, NullEmbedder),
+            "surprise_scoring": not isinstance(store._embedder, NullEmbedder),
+        },
+    }
+    return json.dumps(health, indent=2)
 
 
 if __name__ == "__main__":

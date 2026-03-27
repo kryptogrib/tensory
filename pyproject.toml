@@ -26,12 +26,7 @@ dependencies = [
 [project.optional-dependencies]
 openai = ["openai>=1.0"]
 neo4j = ["neo4j>=5.0"]
-dev = [
-    "pytest>=7.0",
-    "pytest-asyncio>=0.21",
-    "pyright>=1.1",
-    "ruff>=0.1",
-]
+mcp = ["mcp[cli]>=1.0"]
 
 [project.urls]
 Repository = "https://github.com/tensory/tensory"
@@ -48,6 +43,10 @@ dev = [
     "pytest-asyncio>=0.21",
     "pyright>=1.1",
     "ruff>=0.1",
+    "anthropic>=0.86.0",
+    "httpx>=0.28.1",
+    "python-dotenv>=1.2.2",
+    "mcp[cli]>=1.0",
 ]
 
 [tool.pyright]

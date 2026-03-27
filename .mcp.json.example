@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "tensory": {
+      "command": "uv",
+      "args": ["run", "--project", "/Users/YOUR_USERNAME/Work/tensory", "python", "tensory_mcp.py"],
+      "env": {
+        "ANTHROPIC_BASE_URL": "http://localhost:8317",
+        "ANTHROPIC_API_KEY": "your-proxy-key",
+        "TENSORY_DB": "tensory_memory.db",
+        "TENSORY_MODEL": "claude-haiku-4-5-20251001",
+        "OPENAI_API_KEY": "sk-your-openai-key"
+      }
+    }
+  }
+}
