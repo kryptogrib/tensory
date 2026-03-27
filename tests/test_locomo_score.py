@@ -1,7 +1,5 @@
 """Tests for LoCoMo benchmark scoring and data parsing."""
 
-import pytest
-
 from benchmarks.locomo.data import Conversation, QAItem, Turn, parse_conversation
 
 

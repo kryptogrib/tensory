@@ -9,3 +9,7 @@ build/
 .env
 /.claude
 /docs
+env.local
+res.sh
+.mcp.json
+benchmarks/locomo/.cache/
