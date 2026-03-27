@@ -272,12 +272,8 @@ class Neo4jBackend:
     async def _ensure_indexes(self) -> None:
         """Create indexes on first use for fast lookups."""
         async with self._driver.session(database=self._database) as session:
-            await session.run(
-                "CREATE INDEX IF NOT EXISTS FOR (e:Entity) ON (e.name)"
-            )
-            await session.run(
-                "CREATE INDEX IF NOT EXISTS FOR (e:Entity) ON (e.entity_id)"
-            )
+            await session.run("CREATE INDEX IF NOT EXISTS FOR (e:Entity) ON (e.name)")
+            await session.run("CREATE INDEX IF NOT EXISTS FOR (e:Entity) ON (e.entity_id)")
 
     async def add_entity(self, name: str, entity_type: str | None = None) -> str:
         """Add or update an entity node. Returns entity ID."""
@@ -364,9 +360,7 @@ class Neo4jBackend:
             records = [record async for record in result]
             return [str(r["id"]) for r in records]
 
-    async def get_shared_entities(
-        self, claim_id: str, limit: int = 50
-    ) -> list[str]:
+    async def get_shared_entities(self, claim_id: str, limit: int = 50) -> list[str]:
         """Get entity IDs shared with other claims.
 
         Note: claim_entities mapping is still in SQLite.
@@ -384,9 +378,7 @@ class Neo4jBackend:
         )
         return []
 
-    async def find_path(
-        self, from_entity: str, to_entity: str
-    ) -> list[str]:
+    async def find_path(self, from_entity: str, to_entity: str) -> list[str]:
         """Find shortest path between two entities via Cypher."""
         async with self._driver.session(database=self._database) as session:
             result = await session.run(

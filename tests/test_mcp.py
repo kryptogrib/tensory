@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import json
-from typing import Any
-from unittest.mock import patch
 
 import pytest
 
@@ -14,18 +12,20 @@ import tensory_mcp
 
 class FakeLLM:
     async def __call__(self, prompt: str) -> str:
-        return json.dumps({
-            "claims": [
-                {
-                    "text": "Test claim extracted by LLM",
-                    "type": "fact",
-                    "entities": ["TestEntity"],
-                    "confidence": 0.9,
-                    "relevance": 0.8,
-                }
-            ],
-            "relations": [],
-        })
+        return json.dumps(
+            {
+                "claims": [
+                    {
+                        "text": "Test claim extracted by LLM",
+                        "type": "fact",
+                        "entities": ["TestEntity"],
+                        "confidence": 0.9,
+                        "relevance": 0.8,
+                    }
+                ],
+                "relations": [],
+            }
+        )
 
 
 @pytest.fixture(autouse=True)
@@ -52,10 +52,12 @@ async def init_store() -> None:
 
 async def test_remember_stores_claims(init_store: None) -> None:
     """tensory_remember stores pre-extracted claims."""
-    result_json = await tensory_mcp.tensory_remember([
-        {"text": "EigenLayer has 50 team members", "entities": ["EigenLayer"], "type": "fact"},
-        {"text": "Lido reached 10M staked ETH", "entities": ["Lido", "ETH"], "type": "fact"},
-    ])
+    result_json = await tensory_mcp.tensory_remember(
+        [
+            {"text": "EigenLayer has 50 team members", "entities": ["EigenLayer"], "type": "fact"},
+            {"text": "Lido reached 10M staked ETH", "entities": ["Lido", "ETH"], "type": "fact"},
+        ]
+    )
     result = json.loads(result_json)
 
     assert result["stored"] == 2
@@ -74,9 +76,11 @@ async def test_remember_empty_list(init_store: None) -> None:
 
 async def test_search_returns_results(init_store: None) -> None:
     """tensory_search finds stored claims."""
-    await tensory_mcp.tensory_remember([
-        {"text": "EigenLayer restaking protocol launched", "entities": ["EigenLayer"]},
-    ])
+    await tensory_mcp.tensory_remember(
+        [
+            {"text": "EigenLayer restaking protocol launched", "entities": ["EigenLayer"]},
+        ]
+    )
 
     result_json = await tensory_mcp.tensory_search("EigenLayer")
     results = json.loads(result_json)
@@ -94,10 +98,9 @@ async def test_search_empty_query(init_store: None) -> None:
 
 async def test_search_respects_limit(init_store: None) -> None:
     """tensory_search respects the limit parameter."""
-    await tensory_mcp.tensory_remember([
-        {"text": f"Claim about topic number {i}", "entities": ["Topic"]}
-        for i in range(10)
-    ])
+    await tensory_mcp.tensory_remember(
+        [{"text": f"Claim about topic number {i}", "entities": ["Topic"]} for i in range(10)]
+    )
 
     result_json = await tensory_mcp.tensory_search("topic", limit=3)
     results = json.loads(result_json)
@@ -109,10 +112,12 @@ async def test_search_respects_limit(init_store: None) -> None:
 
 async def test_timeline_returns_history(init_store: None) -> None:
     """tensory_timeline shows entity history."""
-    await tensory_mcp.tensory_remember([
-        {"text": "EigenLayer launched v1", "entities": ["EigenLayer"]},
-        {"text": "EigenLayer launched v2 with major improvements", "entities": ["EigenLayer"]},
-    ])
+    await tensory_mcp.tensory_remember(
+        [
+            {"text": "EigenLayer launched v1", "entities": ["EigenLayer"]},
+            {"text": "EigenLayer launched v2 with major improvements", "entities": ["EigenLayer"]},
+        ]
+    )
 
     result_json = await tensory_mcp.tensory_timeline("EigenLayer")
     timeline = json.loads(result_json)
@@ -133,9 +138,11 @@ async def test_timeline_empty_entity(init_store: None) -> None:
 
 async def test_stats_returns_counts(init_store: None) -> None:
     """tensory_stats returns memory statistics."""
-    await tensory_mcp.tensory_remember([
-        {"text": "Test claim", "entities": ["Test"]},
-    ])
+    await tensory_mcp.tensory_remember(
+        [
+            {"text": "Test claim", "entities": ["Test"]},
+        ]
+    )
 
     result_json = await tensory_mcp.tensory_stats()
     stats = json.loads(result_json)
@@ -197,13 +204,21 @@ async def test_add_without_llm_returns_error() -> None:
 
 async def test_remember_detects_collisions(init_store: None) -> None:
     """Collisions are detected and reported via tensory_remember."""
-    await tensory_mcp.tensory_remember([
-        {"text": "EigenLayer has 50 team members", "entities": ["EigenLayer"], "type": "fact"},
-    ])
+    await tensory_mcp.tensory_remember(
+        [
+            {"text": "EigenLayer has 50 team members", "entities": ["EigenLayer"], "type": "fact"},
+        ]
+    )
 
-    result_json = await tensory_mcp.tensory_remember([
-        {"text": "EigenLayer has 65 team members after hiring", "entities": ["EigenLayer"], "type": "fact"},
-    ])
+    result_json = await tensory_mcp.tensory_remember(
+        [
+            {
+                "text": "EigenLayer has 65 team members after hiring",
+                "entities": ["EigenLayer"],
+                "type": "fact",
+            },
+        ]
+    )
     result = json.loads(result_json)
 
     assert result["stored"] >= 1

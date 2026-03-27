@@ -85,7 +85,9 @@ If no claims can be extracted, return {{"claims": [], "relations": []}}"""
 
 # ── 2. CARA Opinion Formation (used by reflect()) ────────────────────────
 
-CARA_OPINION_FORMATION: Final[str] = """Extract any NEW opinions or perspectives from the recalled facts below and rewrite them in FIRST-PERSON as if YOU are stating the opinion directly.
+CARA_OPINION_FORMATION: Final[
+    str
+] = """Extract any NEW opinions or perspectives from the recalled facts below and rewrite them in FIRST-PERSON as if YOU are stating the opinion directly.
 
 QUERY: {query}
 DISPOSITION: {disposition}
@@ -127,7 +129,9 @@ If no meaningful opinions can be formed, return {{"opinions": []}}"""
 
 # ── 3. Observation Synthesis (used by reflect()) ─────────────────────────
 
-OBSERVATION_SYNTHESIS: Final[str] = """You are an objective observer synthesizing facts about an entity. Generate clear, factual observations without opinions or behavioral profile influence. Be concise and accurate.
+OBSERVATION_SYNTHESIS: Final[
+    str
+] = """You are an objective observer synthesizing facts about an entity. Generate clear, factual observations without opinions or behavioral profile influence. Be concise and accurate.
 
 Based on the following facts about "{entity_name}", generate a list of key observations.
 

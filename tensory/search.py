@@ -18,8 +18,8 @@ from __future__ import annotations
 
 import asyncio
 import json
-import re
 import logging
+import re
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
@@ -104,7 +104,7 @@ def _sanitize_fts_query(query: str) -> str:
     We strip them and join remaining tokens with implicit AND.
     """
     # Remove FTS5 special characters
-    cleaned = re.sub(r'[?\'\"*()^\-+~:{}[\]|!@#$%&]', " ", query)
+    cleaned = re.sub(r"[?\'\"*()^\-+~:{}[\]|!@#$%&]", " ", query)
     # Collapse whitespace, strip
     tokens = cleaned.split()
     if not tokens:

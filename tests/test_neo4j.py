@@ -11,12 +11,11 @@ For integration tests with real Neo4j, use:
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
-from tensory.graph import GraphBackend, Neo4jBackend, SQLiteGraphBackend
-
+from tensory.graph import Neo4jBackend, SQLiteGraphBackend
 
 # ── Protocol compliance ──────────────────────────────────────────────────
 
@@ -157,7 +156,9 @@ async def test_add_entity_strips_whitespace(neo4j_backend: Neo4jBackend) -> None
 async def test_add_edge_creates_relationship(neo4j_backend: Neo4jBackend) -> None:
     """add_edge creates a typed relationship with properties."""
     await neo4j_backend.add_edge(
-        "id1", "id2", "PARTNERED_WITH",
+        "id1",
+        "id2",
+        "PARTNERED_WITH",
         {"fact": "Google partnered with EigenLayer", "confidence": 0.9},
     )
 
@@ -186,10 +187,12 @@ async def test_add_edge_sanitizes_rel_type(neo4j_backend: Neo4jBackend) -> None:
 async def test_traverse_without_edge_filter(neo4j_backend: Neo4jBackend) -> None:
     """traverse generates correct Cypher without edge type filter."""
     mock_driver: MockDriver = neo4j_backend._driver  # type: ignore[assignment]
-    mock_driver.session_mock.set_response([
-        MockRecord({"id": "eid1"}),
-        MockRecord({"id": "eid2"}),
-    ])
+    mock_driver.session_mock.set_response(
+        [
+            MockRecord({"id": "eid1"}),
+            MockRecord({"id": "eid2"}),
+        ]
+    )
 
     result = await neo4j_backend.traverse("EigenLayer", depth=2)
 
@@ -205,7 +208,9 @@ async def test_traverse_with_edge_filter(neo4j_backend: Neo4jBackend) -> None:
     mock_driver.session_mock.set_response([MockRecord({"id": "eid1"})])
 
     result = await neo4j_backend.traverse(
-        "EigenLayer", depth=1, edge_types=["PARTNERED_WITH", "INVESTED_IN"],
+        "EigenLayer",
+        depth=1,
+        edge_types=["PARTNERED_WITH", "INVESTED_IN"],
     )
 
     assert result == ["eid1"]
@@ -219,9 +224,11 @@ async def test_traverse_with_edge_filter(neo4j_backend: Neo4jBackend) -> None:
 async def test_find_path_returns_ids(neo4j_backend: Neo4jBackend) -> None:
     """find_path uses shortestPath and returns entity IDs."""
     mock_driver: MockDriver = neo4j_backend._driver  # type: ignore[assignment]
-    mock_driver.session_mock.set_response([
-        MockRecord({"entity_ids": ["id1", "id2", "id3"]}),
-    ])
+    mock_driver.session_mock.set_response(
+        [
+            MockRecord({"entity_ids": ["id1", "id2", "id3"]}),
+        ]
+    )
 
     result = await neo4j_backend.find_path("Google", "Ethereum")
 
@@ -243,7 +250,6 @@ async def test_close_calls_driver_close(neo4j_backend: Neo4jBackend) -> None:
     """close() closes the Neo4j driver."""
     mock_driver: MockDriver = neo4j_backend._driver  # type: ignore[assignment]
     # Replace with AsyncMock to verify call
-    original_close = mock_driver.close
     close_called = False
 
     async def track_close() -> None:

@@ -9,7 +9,6 @@ import pytest
 from tensory import Claim, ClaimType, Tensory
 from tensory.models import ReflectResult
 
-
 # ── Fake LLM for CARA tests ──────────────────────────────────────────────
 
 
@@ -25,32 +24,38 @@ class FakeCARALLM:
         self.prompts.append(prompt)
 
         if "opinions" in prompt.lower() or "CARA" in prompt or "first-person" in prompt.lower():
-            return json.dumps({
-                "opinions": [
-                    {
-                        "text": "I believe EigenLayer's rapid team growth signals strong funding",
-                        "confidence": 0.75,
-                        "entities": ["EigenLayer"],
-                    }
-                ]
-            })
+            return json.dumps(
+                {
+                    "opinions": [
+                        {
+                            "text": "I believe EigenLayer's rapid team growth signals strong funding",
+                            "confidence": 0.75,
+                            "entities": ["EigenLayer"],
+                        }
+                    ]
+                }
+            )
         elif "observations" in prompt.lower() or "synthesiz" in prompt.lower():
-            return json.dumps({
-                "observations": [
-                    {
-                        "text": "EigenLayer has expanded significantly in 2026",
-                        "entities": ["EigenLayer"],
-                    }
-                ]
-            })
+            return json.dumps(
+                {
+                    "observations": [
+                        {
+                            "text": "EigenLayer has expanded significantly in 2026",
+                            "entities": ["EigenLayer"],
+                        }
+                    ]
+                }
+            )
         else:
             # Extraction prompt — return claims
-            return json.dumps({
-                "claims": [
-                    {"text": "Generic extracted claim", "type": "fact", "entities": []},
-                ],
-                "relations": [],
-            })
+            return json.dumps(
+                {
+                    "claims": [
+                        {"text": "Generic extracted claim", "type": "fact", "entities": []},
+                    ],
+                    "relations": [],
+                }
+            )
 
 
 @pytest.fixture
@@ -66,10 +71,12 @@ async def reflect_store() -> Tensory:
 
 async def test_reflect_without_llm_returns_result(store: Tensory) -> None:
     """reflect() works without LLM — returns LLM-free results."""
-    await store.add_claims([
-        Claim(text="EigenLayer has 50 members", entities=["EigenLayer"]),
-        Claim(text="EigenLayer partnered with Google", entities=["EigenLayer", "Google"]),
-    ])
+    await store.add_claims(
+        [
+            Claim(text="EigenLayer has 50 members", entities=["EigenLayer"]),
+            Claim(text="EigenLayer partnered with Google", entities=["EigenLayer", "Google"]),
+        ]
+    )
 
     result = await store.reflect("EigenLayer")
 
@@ -88,10 +95,12 @@ async def test_reflect_empty_store(store: Tensory) -> None:
 
 async def test_reflect_detects_collisions(store: Tensory) -> None:
     """reflect() detects collisions between recalled claims."""
-    await store.add_claims([
-        Claim(text="EigenLayer has 50 team members", entities=["EigenLayer"]),
-        Claim(text="EigenLayer has 65 team members after hiring", entities=["EigenLayer"]),
-    ])
+    await store.add_claims(
+        [
+            Claim(text="EigenLayer has 50 team members", entities=["EigenLayer"]),
+            Claim(text="EigenLayer has 65 team members after hiring", entities=["EigenLayer"]),
+        ]
+    )
 
     result = await store.reflect("EigenLayer")
     assert len(result.collisions) >= 1
@@ -99,12 +108,14 @@ async def test_reflect_detects_collisions(store: Tensory) -> None:
 
 async def test_reflect_creates_observation_on_multiple_collisions(store: Tensory) -> None:
     """reflect() creates template observation when ≥2 collisions found."""
-    await store.add_claims([
-        Claim(text="EigenLayer has 50 team members", entities=["EigenLayer"]),
-        Claim(text="EigenLayer has 65 team members now", entities=["EigenLayer"]),
-        Claim(text="EigenLayer partnered with Google Cloud", entities=["EigenLayer", "Google"]),
-        Claim(text="EigenLayer partnered with AWS instead", entities=["EigenLayer", "AWS"]),
-    ])
+    await store.add_claims(
+        [
+            Claim(text="EigenLayer has 50 team members", entities=["EigenLayer"]),
+            Claim(text="EigenLayer has 65 team members now", entities=["EigenLayer"]),
+            Claim(text="EigenLayer partnered with Google Cloud", entities=["EigenLayer", "Google"]),
+            Claim(text="EigenLayer partnered with AWS instead", entities=["EigenLayer", "AWS"]),
+        ]
+    )
 
     result = await store.reflect("EigenLayer")
 
@@ -120,10 +131,12 @@ async def test_reflect_creates_observation_on_multiple_collisions(store: Tensory
 
 async def test_reflect_with_cara_creates_opinions(reflect_store: Tensory) -> None:
     """reflect() with LLM runs CARA and creates opinion claims."""
-    await reflect_store.add_claims([
-        Claim(text="EigenLayer has 50 team members", entities=["EigenLayer"]),
-        Claim(text="EigenLayer received Series B funding", entities=["EigenLayer"]),
-    ])
+    await reflect_store.add_claims(
+        [
+            Claim(text="EigenLayer has 50 team members", entities=["EigenLayer"]),
+            Claim(text="EigenLayer received Series B funding", entities=["EigenLayer"]),
+        ]
+    )
 
     result = await reflect_store.reflect("EigenLayer")
 
@@ -135,11 +148,13 @@ async def test_reflect_with_cara_creates_opinions(reflect_store: Tensory) -> Non
 
 async def test_reflect_with_cara_creates_observations(reflect_store: Tensory) -> None:
     """reflect() with LLM synthesizes observations per entity."""
-    await reflect_store.add_claims([
-        Claim(text="EigenLayer launched restaking protocol", entities=["EigenLayer"]),
-        Claim(text="EigenLayer expanded team to 60 engineers", entities=["EigenLayer"]),
-        Claim(text="EigenLayer partnered with major cloud provider", entities=["EigenLayer"]),
-    ])
+    await reflect_store.add_claims(
+        [
+            Claim(text="EigenLayer launched restaking protocol", entities=["EigenLayer"]),
+            Claim(text="EigenLayer expanded team to 60 engineers", entities=["EigenLayer"]),
+            Claim(text="EigenLayer partnered with major cloud provider", entities=["EigenLayer"]),
+        ]
+    )
 
     result = await reflect_store.reflect("EigenLayer")
 
@@ -150,11 +165,13 @@ async def test_reflect_with_cara_creates_observations(reflect_store: Tensory) ->
 
 async def test_reflect_with_disposition(reflect_store: Tensory) -> None:
     """reflect() passes disposition to CARA prompt."""
-    await reflect_store.add_claims([
-        Claim(text="EigenLayer has 50 team members", entities=["EigenLayer"]),
-    ])
+    await reflect_store.add_claims(
+        [
+            Claim(text="EigenLayer has 50 team members", entities=["EigenLayer"]),
+        ]
+    )
 
-    result = await reflect_store.reflect(
+    await reflect_store.reflect(
         "EigenLayer",
         disposition={"risk_tolerance": "conservative", "focus": "team stability"},
     )
@@ -166,19 +183,19 @@ async def test_reflect_with_disposition(reflect_store: Tensory) -> None:
 
 async def test_reflect_auto_update_false(store: Tensory) -> None:
     """reflect() with auto_update=False doesn't change salience."""
-    r = await store.add_claims([
-        Claim(text="EigenLayer has 50 team members", entities=["EigenLayer"], salience=1.0),
-        Claim(text="EigenLayer has 65 team members now", entities=["EigenLayer"], salience=1.0),
-    ])
+    r = await store.add_claims(
+        [
+            Claim(text="EigenLayer has 50 team members", entities=["EigenLayer"], salience=1.0),
+            Claim(text="EigenLayer has 65 team members now", entities=["EigenLayer"], salience=1.0),
+        ]
+    )
 
-    original_salience = r.claims[0].salience
+    _original_salience = r.claims[0].salience  # noqa: F841
 
     await store.reflect("EigenLayer", auto_update=False)
 
     # Salience should not have changed from collision
-    cursor = await store._db.execute(
-        "SELECT salience FROM claims WHERE id = ?", (r.claims[0].id,)
-    )
+    cursor = await store._db.execute("SELECT salience FROM claims WHERE id = ?", (r.claims[0].id,))
     row = await cursor.fetchone()
     # With auto_update=False, reflect doesn't apply salience changes
     # (but collisions from add_claims already applied)

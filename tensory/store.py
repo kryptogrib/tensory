@@ -662,11 +662,16 @@ class Tensory:
         observations: list[Claim] = []
 
         facts_text = "\n".join(f"- {c.text} (salience={c.salience:.2f})" for c in claims)
-        collisions_text = "\n".join(
-            f"- {col.type}: '{col.claim_a.text[:60]}' vs '{col.claim_b.text[:60]}' (score={col.score})"
-            for col in collisions
-        ) or "None detected"
-        disposition_text = json.dumps(disposition) if disposition else "neutral — no specific disposition"
+        collisions_text = (
+            "\n".join(
+                f"- {col.type}: '{col.claim_a.text[:60]}' vs '{col.claim_b.text[:60]}' (score={col.score})"
+                for col in collisions
+            )
+            or "None detected"
+        )
+        disposition_text = (
+            json.dumps(disposition) if disposition else "neutral — no specific disposition"
+        )
 
         # ── CARA Opinion Formation ────────────────────────────────────
         try:
@@ -721,7 +726,10 @@ class Tensory:
                     if isinstance(raw_obs, dict):
                         obs_dict = cast(dict[str, Any], raw_obs)
                         obs_text = str(obs_dict.get("text", ""))
-                        obs_entities = [str(e) for e in cast(list[Any], obs_dict.get("entities") or [entity_name])]
+                        obs_entities = [
+                            str(e)
+                            for e in cast(list[Any], obs_dict.get("entities") or [entity_name])
+                        ]
                     elif isinstance(raw_obs, str):
                         obs_text = raw_obs
                         obs_entities = [entity_name]
@@ -1170,9 +1178,7 @@ class Tensory:
 # ── Helpers ───────────────────────────────────────────────────────────────
 
 
-def _synthesize_observation_template(
-    claims: list[Claim], collisions: list[Collision]
-) -> str:
+def _synthesize_observation_template(claims: list[Claim], collisions: list[Collision]) -> str:
     """Template-based observation from claims and collisions (no LLM)."""
     entities = _collect_entities(claims)
     collision_types = [c.type for c in collisions]
