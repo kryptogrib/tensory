@@ -71,7 +71,8 @@ async def test_fts_search_finds_matching_claims(store: Tensory) -> None:
     results = await store.search("EigenLayer")
     assert len(results) >= 2
     assert all("EigenLayer" in r.claim.text for r in results)
-    assert all(r.method == "fts" for r in results)
+    # Phase 2: search returns "hybrid" (FTS + graph + RRF merge)
+    assert all(r.method in ("fts", "hybrid") for r in results)
 
 
 async def test_fts_search_returns_empty_for_no_match(store: Tensory) -> None:
