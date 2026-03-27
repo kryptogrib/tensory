@@ -14,6 +14,7 @@ Usage::
 
 from tensory.embedder import Embedder, NullEmbedder, OpenAIEmbedder
 from tensory.extract import LLMProtocol
+from tensory.graph import GraphBackend, Neo4jBackend, SQLiteGraphBackend
 from tensory.models import (
     Claim,
     ClaimType,
@@ -44,6 +45,10 @@ __all__ = [
     # Embedders
     "NullEmbedder",
     "OpenAIEmbedder",
+    # Graph backends
+    "GraphBackend",
+    "SQLiteGraphBackend",
+    "Neo4jBackend",
 ]
 
 __version__ = "0.1.0"
