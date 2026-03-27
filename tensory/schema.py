@@ -208,8 +208,13 @@ async def create_schema(db: aiosqlite.Connection, *, embedding_dim: int = 1536) 
         await db.execute(trigger)
 
     # Vector embeddings via sqlite-vec
-    # We wrap this in try/except — sqlite-vec may not be installed
+    # Must load extension before creating vec0 virtual table
     try:
+        import sqlite_vec  # pyright: ignore[reportMissingTypeStubs]
+
+        await db.enable_load_extension(True)
+        await db.load_extension(sqlite_vec.loadable_path())
+
         await db.execute(
             f"CREATE VIRTUAL TABLE IF NOT EXISTS claim_embeddings "
             f"USING vec0(claim_id TEXT PRIMARY KEY, embedding FLOAT[{embedding_dim}])"

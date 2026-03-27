@@ -12,6 +12,7 @@ Usage::
     results = await store.search("ETH")
 """
 
+from tensory.embedder import Embedder, NullEmbedder, OpenAIEmbedder
 from tensory.models import (
     Claim,
     ClaimType,
@@ -29,9 +30,12 @@ __all__ = [
     "ClaimType",
     "Collision",
     "Context",
+    "Embedder",
     "EntityRelation",
     "Episode",
     "IngestResult",
+    "NullEmbedder",
+    "OpenAIEmbedder",
     "SearchResult",
     "Tensory",
 ]

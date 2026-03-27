@@ -1,10 +1,8 @@
 """Tensory — main orchestrator for claim-native memory.
 
-Phase 1 provides: create_context, add_claims, search (FTS only), stats.
-Sentiment tagging is applied automatically on ingest.
-
-Later phases add: add (text → extract), reevaluate, hybrid search,
-collision detection, temporal operations.
+Phase 1: create_context, add_claims, search (FTS only), stats.
+Phase 2: embed on ingest, hybrid search (vector + FTS + graph + RRF),
+         surprise score, priming, reinforce-on-access.
 """
 
 from __future__ import annotations
@@ -12,12 +10,14 @@ from __future__ import annotations
 import json
 import logging
 import uuid
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import aiosqlite
 
+from tensory.embedder import Embedder, NullEmbedder
 from tensory.graph import GraphBackend, SQLiteGraphBackend
 from tensory.models import (
     Claim,
@@ -27,6 +27,7 @@ from tensory.models import (
     SearchResult,
 )
 from tensory.schema import create_schema, migrate
+from tensory.search import hybrid_search, load_claim_entities, vector_search
 
 logger = logging.getLogger(__name__)
 
@@ -51,14 +52,13 @@ SENTIMENT_WORDS: dict[str, set[str]] = {
 }
 
 URGENCY_SALIENCE_BOOST = 0.3
+SURPRISE_SALIENCE_FACTOR = 0.3  # surprise * factor = salience boost
+REINFORCE_BOOST = 0.05  # salience boost on search access
+PRIMING_BOOST = 0.02  # per recent mention of entity
 
 
 def _tag_sentiment(text: str) -> dict[str, object]:
-    """Keyword-based sentiment tagging with intensity scoring.
-
-    Returns metadata dict with 'sentiment' and 'intensity' keys.
-    Urgent claims get flagged for salience boost.
-    """
+    """Keyword-based sentiment tagging with intensity scoring."""
     text_lower = text.lower()
     scores: dict[str, int] = {"positive": 0, "negative": 0, "urgent": 0}
 
@@ -96,7 +96,9 @@ class Tensory:
 
     Usage::
 
-        store = await Tensory.create("memory.db")
+        from tensory.embedder import NullEmbedder
+
+        store = await Tensory.create("memory.db", embedder=NullEmbedder())
         ctx = await store.create_context(goal="Track DeFi movements")
         result = await store.add_claims([Claim(text="...", entities=["ETH"])])
         results = await store.search("ETH")
@@ -106,33 +108,52 @@ class Tensory:
         self,
         db: aiosqlite.Connection,
         *,
+        embedder: Embedder | None = None,
         graph_backend: GraphBackend | None = None,
     ) -> None:
         self._db = db
+        self._embedder: Embedder = embedder or NullEmbedder()
         self._graph: GraphBackend = graph_backend or SQLiteGraphBackend(db)
+        # Priming: in-memory counter of recently-searched entities
+        self._recent_entities: Counter[str] = Counter()
+        self._vec_available: bool = True  # set False if sqlite-vec not loaded
 
     @classmethod
     async def create(
         cls,
         path: str | Path = ":memory:",
         *,
+        embedder: Embedder | None = None,
         graph_backend: GraphBackend | None = None,
-        embedding_dim: int = 1536,
+        embedding_dim: int | None = None,
     ) -> Tensory:
         """Create and initialize a Tensory instance.
 
         Args:
             path: SQLite database path. Use \":memory:\" for testing.
+            embedder: Embedding backend (default: NullEmbedder).
             graph_backend: Optional custom graph backend (default: SQLiteGraphBackend).
-            embedding_dim: Vector embedding dimension (default 1536 for OpenAI).
+            embedding_dim: Vector dimension. Auto-detected from embedder if not set.
         """
+        resolved_embedder = embedder or NullEmbedder()
+        dim = embedding_dim or resolved_embedder.dim
+
         db = await aiosqlite.connect(str(path))
         db.row_factory = aiosqlite.Row
-        await create_schema(db, embedding_dim=embedding_dim)
+        await create_schema(db, embedding_dim=dim)
         await migrate(db)
 
         backend = graph_backend or SQLiteGraphBackend(db)
-        return cls(db, graph_backend=backend)
+        instance = cls(db, embedder=resolved_embedder, graph_backend=backend)
+
+        # Check if sqlite-vec is available
+        try:
+            await db.execute("SELECT * FROM claim_embeddings LIMIT 0")
+        except Exception:
+            instance._vec_available = False
+            logger.info("sqlite-vec not available, vector search disabled")
+
+        return instance
 
     async def close(self) -> None:
         """Close database connection and graph backend."""
@@ -149,14 +170,7 @@ class Tensory:
         description: str = "",
         user_id: str | None = None,
     ) -> Context:
-        """Create a research goal — the lens for claim extraction.
-
-        Args:
-            goal: What the user is investigating ("Track DeFi team movements").
-            domain: Knowledge domain ("crypto", "tech", "health").
-            description: Extended description of the research goal.
-            user_id: Optional user identifier.
-        """
+        """Create a research goal — the lens for claim extraction."""
         ctx = Context(
             id=uuid.uuid4().hex,
             goal=goal,
@@ -182,10 +196,10 @@ class Tensory:
         episode_id: str | None = None,
         context_id: str | None = None,
     ) -> IngestResult:
-        """Ingest pre-extracted claims (no LLM needed).
+        """Ingest pre-extracted claims.
 
-        Applies sentiment tagging and default salience per ClaimType.
-        Phase 2+ will add: embedding, dedup, collision detection, waypoints.
+        Pipeline: assign IDs → sentiment tag → embed → compute surprise
+        → store claim → store embedding → register entities.
 
         Args:
             claims: List of Claim objects to store.
@@ -195,7 +209,17 @@ class Tensory:
         stored_claims: list[Claim] = []
         new_entities: list[str] = []
 
-        for claim in claims:
+        # ── Batch embed all claims ────────────────────────────────────────
+        texts = [c.text for c in claims]
+        embeddings: list[list[float]] = []
+        if texts and not isinstance(self._embedder, NullEmbedder):
+            try:
+                embeddings = await self._embedder.embed_batch(texts)
+            except Exception:
+                logger.warning("Embedding failed, proceeding without vectors")
+                embeddings = []
+
+        for i, claim in enumerate(claims):
             # Assign ID if missing
             if not claim.id:
                 claim.id = uuid.uuid4().hex
@@ -210,13 +234,22 @@ class Tensory:
             if claim.decay_rate is None:
                 claim.decay_rate = DECAY_RATES.get(claim.type, 0.010)
 
-            # Sentiment tagging (cognitive mechanism)
+            # Sentiment tagging
             sentiment_meta = _tag_sentiment(claim.text)
             claim.metadata = {**claim.metadata, **sentiment_meta}
 
             # Urgency → salience boost
             if sentiment_meta.get("urgent"):
                 claim.salience = min(1.0, claim.salience + URGENCY_SALIENCE_BOOST)
+
+            # Assign embedding
+            if i < len(embeddings):
+                claim.embedding = embeddings[i]
+
+            # ── Surprise score (cognitive mechanism #1) ───────────────────
+            surprise = await self._compute_surprise(claim)
+            claim.metadata["surprise"] = surprise
+            claim.salience = min(1.0, claim.salience + surprise * SURPRISE_SALIENCE_FACTOR)
 
             # Insert claim
             await self._db.execute(
@@ -241,6 +274,16 @@ class Tensory:
                 ),
             )
 
+            # Store embedding in sqlite-vec
+            if claim.embedding and self._vec_available:
+                try:
+                    await self._db.execute(
+                        "INSERT INTO claim_embeddings (claim_id, embedding) VALUES (?, ?)",
+                        (claim.id, json.dumps(claim.embedding)),
+                    )
+                except Exception:
+                    logger.debug("Failed to store embedding for claim %s", claim.id)
+
             # Register entities (Layer 2)
             for entity_name in claim.entities:
                 entity_id = await self._graph.add_entity(entity_name)
@@ -260,7 +303,33 @@ class Tensory:
             new_entities=list(set(new_entities)),
         )
 
-    # ── Search (Phase 1: FTS only) ────────────────────────────────────────
+    # ── Surprise score (cognitive mechanism #1) ───────────────────────────
+
+    async def _compute_surprise(self, claim: Claim) -> float:
+        """How different is this claim from existing knowledge?
+
+        Inspired by mnemos SurprisalGate: high surprise → salience boost.
+        Returns 0.0 (very similar to existing) to 1.0 (completely novel).
+        """
+        if not claim.embedding or not self._vec_available:
+            return 0.0  # can't compute without vectors
+
+        try:
+            neighbors = await vector_search(
+                claim.embedding, self._db, limit=5
+            )
+        except Exception:
+            return 1.0  # empty DB or vec error = max surprise
+
+        if not neighbors:
+            return 1.0  # empty DB = everything is novel
+
+        # Mean similarity of 5 nearest neighbors
+        mean_sim = sum(r.score for r in neighbors) / len(neighbors)
+        # Surprise = 1 - similarity (novel = far from existing)
+        return round(max(0.0, 1.0 - mean_sim), 4)
+
+    # ── Search (Phase 2: hybrid) ──────────────────────────────────────────
 
     async def search(
         self,
@@ -268,65 +337,86 @@ class Tensory:
         *,
         context: Context | None = None,
         limit: int = 10,
+        weights: dict[str, float] | None = None,
     ) -> list[SearchResult]:
-        """Search claims using FTS5 full-text search.
+        """Hybrid search across vector, FTS, and graph channels.
 
-        Phase 2 will upgrade this to hybrid search (vector + FTS + graph + RRF).
+        Pipeline: embed query → parallel search → RRF merge → priming
+        boost → reinforce on access.
 
         Args:
             query: Search query string.
             context: Optional context to weight relevance.
             limit: Maximum results to return.
+            weights: Channel weights for RRF (default: vector=0.4, fts=0.3, graph=0.3).
         """
-        # FTS5 search
-        cursor = await self._db.execute(
-            """
-            SELECT c.*, rank
-            FROM claims_fts fts
-            JOIN claims c ON c.rowid = fts.rowid
-            WHERE claims_fts MATCH ?
-            ORDER BY rank
-            LIMIT ?
-            """,
-            (query, limit),
+        # Embed the query
+        query_embedding: list[float] | None = None
+        if not isinstance(self._embedder, NullEmbedder):
+            try:
+                query_embedding = await self._embedder.embed(query)
+            except Exception:
+                logger.warning("Query embedding failed, falling back to FTS+graph")
+
+        # Hybrid search with parallel channels + RRF
+        results = await hybrid_search(
+            query,
+            embedding=query_embedding,
+            graph_backend=self._graph,
+            db=self._db,
+            context_id=context.id if context else None,
+            limit=limit,
+            weights=weights,
         )
-        rows = await cursor.fetchall()
 
-        results: list[SearchResult] = []
-        for row in rows:
-            claim = _row_to_claim(row)
+        # ── Load entities for results (needed for priming) ────────────────
+        for result in results:
+            result.claim.entities = await load_claim_entities(result.claim.id, self._db)
 
-            # Reinforce on access (cognitive mechanism — Phase 2 will formalize)
+        # ── Priming boost (cognitive mechanism #2) ────────────────────────
+        for result in results:
+            priming_boost = 0.0
+            for entity in result.claim.entities:
+                mentions = self._recent_entities.get(entity, 0)
+                priming_boost += mentions * PRIMING_BOOST
+            if priming_boost > 0:
+                result.score += priming_boost
+
+        # Re-sort after priming boost
+        results.sort(key=lambda r: r.score, reverse=True)
+
+        # ── Record entities for future priming ────────────────────────────
+        for result in results[:5]:
+            for entity in result.claim.entities:
+                self._recent_entities[entity] += 1
+
+        # Cap priming memory (keep top 100 entities)
+        if len(self._recent_entities) > 200:
+            self._recent_entities = Counter(
+                dict(self._recent_entities.most_common(100))
+            )
+
+        # ── Reinforce on access (OpenMemory pattern) ─────────────────────
+        for result in results:
             await self._db.execute(
                 """UPDATE claims
                    SET access_count = access_count + 1,
                        last_accessed = ?,
-                       salience = MIN(1.0, salience + 0.05)
+                       salience = MIN(1.0, salience + ?)
                    WHERE id = ?""",
-                (datetime.now(timezone.utc).isoformat(), claim.id),
+                (datetime.now(timezone.utc).isoformat(), REINFORCE_BOOST, result.claim.id),
             )
 
-            relevance = 1.0
-            if context:
-                # Check for cross-context relevance score
+        # ── Context relevance ────────────────────────────────────────────
+        if context:
+            for result in results:
                 rel_cursor = await self._db.execute(
                     "SELECT score FROM relevance_scores WHERE claim_id = ? AND context_id = ?",
-                    (claim.id, context.id),
+                    (result.claim.id, context.id),
                 )
                 rel_row = await rel_cursor.fetchone()
                 if rel_row is not None:
-                    relevance = float(rel_row[0])
-
-            fts_rank = float(row["rank"]) if "rank" in row.keys() else 0.0
-            # FTS5 rank is negative (more negative = better match)
-            score = -fts_rank if fts_rank < 0 else fts_rank
-
-            results.append(SearchResult(
-                claim=claim,
-                score=score,
-                relevance=relevance,
-                method="fts",
-            ))
+                    result.relevance = float(rel_row[0])
 
         await self._db.commit()
         return results
@@ -360,31 +450,3 @@ class Tensory:
         }
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────
-
-
-def _row_to_claim(row: aiosqlite.Row) -> Claim:
-    """Convert a database row to a Claim model."""
-    metadata_raw = row["metadata"]
-    metadata: dict[str, object] = {}
-    if metadata_raw:
-        parsed: dict[str, object] = json.loads(str(metadata_raw))
-        metadata = parsed
-
-    return Claim(
-        id=row["id"],
-        text=row["text"],
-        type=ClaimType(row["type"]),
-        confidence=float(row["confidence"]),
-        relevance=float(row["relevance"]),
-        salience=float(row["salience"]),
-        decay_rate=float(row["decay_rate"]) if row["decay_rate"] is not None else None,
-        episode_id=row["episode_id"],
-        context_id=row["context_id"],
-        valid_from=datetime.fromisoformat(row["valid_from"]) if row["valid_from"] else None,
-        valid_to=datetime.fromisoformat(row["valid_to"]) if row["valid_to"] else None,
-        created_at=datetime.fromisoformat(row["created_at"]) if row["created_at"] else datetime.now(timezone.utc),
-        superseded_at=datetime.fromisoformat(row["superseded_at"]) if row["superseded_at"] else None,
-        superseded_by=row["superseded_by"],
-        metadata=metadata,
-    )
