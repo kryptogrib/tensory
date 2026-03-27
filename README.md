@@ -155,17 +155,17 @@ store = await Tensory.create("memory.db")
 
 ```bash
 # Install with dev dependencies
-pip install -e ".[dev]"
+uv sync --all-extras
 
 # Run tests
-pytest tests/
+uv run pytest tests/
 
 # Type checking (strict mode)
-pyright tensory/
+uv run pyright tensory/
 
 # Linting
-ruff check tensory/ tests/
-ruff format tensory/ tests/
+uv run ruff check tensory/ tests/
+uv run ruff format tensory/ tests/
 ```
 
 ## License
