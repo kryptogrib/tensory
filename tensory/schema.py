@@ -217,7 +217,7 @@ async def create_schema(db: aiosqlite.Connection, *, embedding_dim: int = 1536) 
 
         await db.execute(
             f"CREATE VIRTUAL TABLE IF NOT EXISTS claim_embeddings "
-            f"USING vec0(claim_id TEXT PRIMARY KEY, embedding FLOAT[{embedding_dim}])"
+            f"USING vec0(claim_id TEXT PRIMARY KEY, embedding FLOAT[{embedding_dim}] distance_metric=cosine)"
         )
     except Exception:
         logger.warning(
