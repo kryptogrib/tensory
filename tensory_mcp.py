@@ -49,7 +49,12 @@ async def get_store() -> Any:
         # LLM для extraction — через прокси (CLIProxyAPI)
         llm = _make_llm()
         embedder = _make_embedder()
-        db_path = os.environ.get("TENSORY_DB", "tensory_memory.db")
+        db_path = os.environ.get("TENSORY_DB", "data/tensory_memory.db")
+
+        # Auto-create data directory
+        db_dir = os.path.dirname(db_path)
+        if db_dir:
+            os.makedirs(db_dir, exist_ok=True)
 
         _store = await Tensory.create(db_path, llm=llm, embedder=embedder)
         health = _check_health(_store, llm, embedder)
@@ -89,6 +94,7 @@ def _check_health(store: Any, llm: Any, embedder: Any) -> dict[str, Any]:
 def _make_embedder() -> Any:
     """Создаёт OpenAIEmbedder если есть OPENAI_API_KEY, иначе NullEmbedder."""
     api_key = os.environ.get("OPENAI_API_KEY")
+    logger.info("OPENAI_API_KEY present: %s (len=%d)", bool(api_key), len(api_key or ""))
     if not api_key:
         logger.warning("No OPENAI_API_KEY — using NullEmbedder (no vector search)")
         return None  # Tensory.create() подставит NullEmbedder
@@ -234,6 +240,24 @@ async def tensory_stats() -> str:
         "vec_available": getattr(store, "_vec_available", False),
     }
     return json.dumps(stats)
+
+
+@mcp.tool()
+async def tensory_reset() -> str:
+    """Force re-initialize the store. Use after config changes."""
+    global _store
+    if _store is not None:
+        await _store.close()
+        _store = None
+    store = await get_store()
+    from tensory.embedder import NullEmbedder
+    embedder_type = type(store._embedder).__name__
+    return json.dumps({
+        "status": "reinitialized",
+        "llm": store._llm is not None,
+        "embedder": embedder_type,
+        "vec_available": getattr(store, "_vec_available", False),
+    })
 
 
 @mcp.tool()
