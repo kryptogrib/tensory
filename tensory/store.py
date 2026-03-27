@@ -16,7 +16,7 @@ import uuid
 from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import aiosqlite
 
@@ -32,8 +32,10 @@ from tensory.models import (
     Context,
     Episode,
     IngestResult,
+    ReflectResult,
     SearchResult,
 )
+from tensory.prompts import CARA_OPINION_FORMATION, OBSERVATION_SYNTHESIS
 from tensory.schema import create_schema, migrate
 from tensory.search import hybrid_search, load_claim_entities, vector_search
 from tensory.temporal import (
@@ -565,6 +567,182 @@ class Tensory:
         await self._db.commit()
         return results
 
+    # ── reflect() — learning via reflection (CARA) ─────────────────────
+
+    async def reflect(
+        self,
+        query: str,
+        *,
+        disposition: dict[str, str] | None = None,
+        auto_update: bool = True,
+        limit: int = 20,
+    ) -> ReflectResult:
+        """Learning via reflection — recall, detect collisions, form opinions.
+
+        Two modes:
+        1. LLM-free (default): recall → collision detection → salience update
+           → template observation if patterns found
+        2. LLM-based (CARA): if self._llm is set, also runs:
+           → CARA Opinion Formation (first-person opinions from facts)
+           → Observation Synthesis (entity-level summaries)
+
+        Inspired by Hindsight reflect() (arxiv.org/abs/2512.12818).
+
+        Args:
+            query: What to reflect on ("What do I know about EigenLayer?").
+            disposition: CARA personality params (e.g. {"risk_tolerance": "conservative"}).
+            auto_update: Apply salience updates from collisions.
+            limit: How many claims to recall for reflection.
+        """
+        # ── Step 1: Recall ────────────────────────────────────────────
+        results = await self.search(query, limit=limit)
+        claims = [r.claim for r in results]
+
+        if not claims:
+            return ReflectResult()
+
+        # ── Step 2: Cross-collision detection ─────────────────────────
+        all_collisions: list[Collision] = []
+        for claim in claims:
+            cols = await find_collisions(claim, self._db, graph_backend=self._graph)
+            # Only keep collisions between recalled claims (not all DB)
+            for col in cols:
+                if not any(c.claim_b.id == col.claim_b.id for c in all_collisions):
+                    all_collisions.append(col)
+
+        # ── Step 3: Salience updates ──────────────────────────────────
+        if auto_update and all_collisions:
+            await apply_salience_updates(all_collisions, self._db)
+
+        updated_claims = [
+            c for c in claims if any(col.claim_b.id == c.id for col in all_collisions)
+        ]
+
+        # ── Step 4: Observations (template-based, no LLM) ────────────
+        new_observations: list[Claim] = []
+        if len(all_collisions) >= 2:
+            obs = Claim(
+                text=_synthesize_observation_template(claims, all_collisions),
+                type=ClaimType.OBSERVATION,
+                confidence=0.6,
+                entities=_collect_entities(claims),
+            )
+            obs_result = await self.add_claims([obs])
+            new_observations.extend(obs_result.claims)
+
+        # ── Step 5: CARA (LLM-based, optional) ───────────────────────
+        new_opinions: list[Claim] = []
+        if self._llm and claims:
+            opinions, llm_observations = await self._cara_reflect(
+                query, claims, all_collisions, disposition
+            )
+            new_opinions.extend(opinions)
+            new_observations.extend(llm_observations)
+
+        return ReflectResult(
+            updated_claims=updated_claims,
+            new_observations=new_observations,
+            new_opinions=new_opinions,
+            collisions=all_collisions,
+        )
+
+    async def _cara_reflect(
+        self,
+        query: str,
+        claims: list[Claim],
+        collisions: list[Collision],
+        disposition: dict[str, str] | None,
+    ) -> tuple[list[Claim], list[Claim]]:
+        """Run CARA prompts for opinion formation + observation synthesis.
+
+        Returns (opinions, observations).
+        """
+        assert self._llm is not None
+        opinions: list[Claim] = []
+        observations: list[Claim] = []
+
+        facts_text = "\n".join(f"- {c.text} (salience={c.salience:.2f})" for c in claims)
+        collisions_text = "\n".join(
+            f"- {col.type}: '{col.claim_a.text[:60]}' vs '{col.claim_b.text[:60]}' (score={col.score})"
+            for col in collisions
+        ) or "None detected"
+        disposition_text = json.dumps(disposition) if disposition else "neutral — no specific disposition"
+
+        # ── CARA Opinion Formation ────────────────────────────────────
+        try:
+            opinion_prompt = CARA_OPINION_FORMATION.format(
+                query=query,
+                disposition=disposition_text,
+                facts_text=facts_text,
+                collisions_text=collisions_text,
+            )
+            response = await self._llm(opinion_prompt)
+            parsed = _parse_json_response(response)
+
+            for raw_item in cast(list[dict[str, Any]], parsed.get("opinions", [])):
+                if raw_item.get("text"):
+                    opinion = Claim(
+                        text=str(raw_item["text"]),
+                        type=ClaimType.OPINION,
+                        confidence=float(str(raw_item.get("confidence", 0.7))),
+                        entities=[str(e) for e in cast(list[Any], raw_item.get("entities") or [])],
+                    )
+                    result = await self.add_claims([opinion])
+                    opinions.extend(result.claims)
+        except Exception:
+            logger.warning("CARA opinion formation failed")
+
+        # ── Observation Synthesis (per top entity) ────────────────────
+        entity_counts: Counter[str] = Counter()
+        for c in claims:
+            for e in c.entities:
+                entity_counts[e] += 1
+
+        top_entities = [e for e, _ in entity_counts.most_common(3)]
+
+        for entity_name in top_entities:
+            entity_facts = [c for c in claims if entity_name in c.entities]
+            if len(entity_facts) < 2:
+                continue
+
+            try:
+                entity_facts_text = "\n".join(f"- {c.text}" for c in entity_facts)
+                obs_prompt = OBSERVATION_SYNTHESIS.format(
+                    entity_name=entity_name,
+                    ENTITY_NAME=entity_name.upper(),
+                    facts_text=entity_facts_text,
+                )
+                response = await self._llm(obs_prompt)
+                parsed = _parse_json_response(response)
+
+                for raw_obs in parsed.get("observations", []):
+                    obs_text: str
+                    obs_entities: list[str]
+                    if isinstance(raw_obs, dict):
+                        obs_dict = cast(dict[str, Any], raw_obs)
+                        obs_text = str(obs_dict.get("text", ""))
+                        obs_entities = [str(e) for e in cast(list[Any], obs_dict.get("entities") or [entity_name])]
+                    elif isinstance(raw_obs, str):
+                        obs_text = raw_obs
+                        obs_entities = [entity_name]
+                    else:
+                        continue
+
+                    if obs_text:
+                        obs = Claim(
+                            text=obs_text,
+                            type=ClaimType.OBSERVATION,
+                            confidence=0.7,
+                            entities=obs_entities,
+                            salience=0.8,
+                        )
+                        result = await self.add_claims([obs])
+                        observations.extend(result.claims)
+            except Exception:
+                logger.warning("Observation synthesis failed for %s", entity_name)
+
+        return opinions, observations
+
     # ── Stats ─────────────────────────────────────────────────────────────
 
     async def stats(self) -> dict[str, Any]:
@@ -987,3 +1165,48 @@ class Tensory:
             "top_entities": top_entities,
             "claim_frequency": frequency,
         }
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────
+
+
+def _synthesize_observation_template(
+    claims: list[Claim], collisions: list[Collision]
+) -> str:
+    """Template-based observation from claims and collisions (no LLM)."""
+    entities = _collect_entities(claims)
+    collision_types = [c.type for c in collisions]
+    n_contradictions = collision_types.count("contradiction")
+    n_confirms = collision_types.count("confirms")
+
+    parts = [f"Reflection on {len(claims)} claims"]
+    if entities:
+        parts.append(f"about {', '.join(entities[:5])}")
+    if n_contradictions:
+        parts.append(f"({n_contradictions} contradictions detected)")
+    if n_confirms:
+        parts.append(f"({n_confirms} confirmations)")
+
+    return ". ".join(parts)
+
+
+def _collect_entities(claims: list[Claim]) -> list[str]:
+    """Collect unique entities from claims, ordered by frequency."""
+    counts: Counter[str] = Counter()
+    for c in claims:
+        for e in c.entities:
+            counts[e] += 1
+    return [e for e, _ in counts.most_common(10)]
+
+
+def _parse_json_response(response: str) -> dict[str, Any]:
+    """Parse LLM JSON response, stripping markdown if needed."""
+    text = response.strip()
+    if text.startswith("```"):
+        lines = text.split("\n")
+        text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+    try:
+        result: dict[str, Any] = json.loads(text)
+        return result
+    except json.JSONDecodeError:
+        return {}

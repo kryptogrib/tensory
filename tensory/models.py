@@ -163,3 +163,17 @@ class SearchResult(BaseModel):
     score: float
     relevance: float = 1.0  # relevance to current context
     method: str = "hybrid"  # "vector" | "fts" | "graph" | "hybrid"
+
+
+class ReflectResult(BaseModel):
+    """Result of reflect() — learning via reflection.
+
+    Contains updated claims (salience changed), new observations
+    (synthesized from patterns), new opinions (CARA-generated),
+    and detected collisions.
+    """
+
+    updated_claims: list[Claim] = []
+    new_observations: list[Claim] = []
+    new_opinions: list[Claim] = []
+    collisions: list[Collision] = []

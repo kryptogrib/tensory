@@ -23,6 +23,7 @@ from tensory.models import (
     EntityRelation,
     Episode,
     IngestResult,
+    ReflectResult,
     SearchResult,
 )
 from tensory.store import Tensory
@@ -38,6 +39,7 @@ __all__ = [
     "EntityRelation",
     "Episode",
     "IngestResult",
+    "ReflectResult",
     "SearchResult",
     # Protocols
     "Embedder",
