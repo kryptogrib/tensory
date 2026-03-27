@@ -13,3 +13,4 @@ env.local
 res.sh
 .mcp.json
 benchmarks/locomo/.cache/
+benchmarks/locomo/results/
