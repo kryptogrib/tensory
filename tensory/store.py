@@ -3,6 +3,7 @@
 Phase 1: create_context, add_claims, search (FTS only), stats.
 Phase 2: embed on ingest, hybrid search (vector + FTS + graph + RRF),
          surprise score, priming, reinforce-on-access.
+Phase 3: dedup, collision detection + salience updates, waypoint creation.
 """
 
 from __future__ import annotations
@@ -17,11 +18,14 @@ from typing import Any
 
 import aiosqlite
 
+from tensory.collisions import apply_salience_updates, find_collisions
+from tensory.dedup import MinHashDedup
 from tensory.embedder import Embedder, NullEmbedder
 from tensory.graph import GraphBackend, SQLiteGraphBackend
 from tensory.models import (
     Claim,
     ClaimType,
+    Collision,
     Context,
     IngestResult,
     SearchResult,
@@ -114,6 +118,7 @@ class Tensory:
         self._db = db
         self._embedder: Embedder = embedder or NullEmbedder()
         self._graph: GraphBackend = graph_backend or SQLiteGraphBackend(db)
+        self._dedup = MinHashDedup()
         # Priming: in-memory counter of recently-searched entities
         self._recent_entities: Counter[str] = Counter()
         self._vec_available: bool = True  # set False if sqlite-vec not loaded
@@ -198,8 +203,9 @@ class Tensory:
     ) -> IngestResult:
         """Ingest pre-extracted claims.
 
-        Pipeline: assign IDs → sentiment tag → embed → compute surprise
-        → store claim → store embedding → register entities.
+        Pipeline: assign IDs → dedup check → sentiment tag → embed →
+        compute surprise → store claim → store embedding → register
+        entities → create waypoint → detect collisions → update salience.
 
         Args:
             claims: List of Claim objects to store.
@@ -208,6 +214,10 @@ class Tensory:
         """
         stored_claims: list[Claim] = []
         new_entities: list[str] = []
+        all_collisions: list[Collision] = []
+
+        # ── Load existing claim texts for dedup ───────────────────────────
+        existing_texts = await self._get_existing_claim_texts(limit=200)
 
         # ── Batch embed all claims ────────────────────────────────────────
         texts = [c.text for c in claims]
@@ -229,6 +239,12 @@ class Tensory:
                 claim.episode_id = episode_id
             if context_id:
                 claim.context_id = context_id
+
+            # ── Dedup check ───────────────────────────────────────────────
+            if self._dedup.is_duplicate(claim.text, existing_texts):
+                logger.debug("Duplicate claim skipped: %s", claim.text[:60])
+                claim.metadata["dedup_skipped"] = True
+                continue
 
             # Apply default decay rate based on claim type
             if claim.decay_rate is None:
@@ -293,6 +309,21 @@ class Tensory:
                 )
                 new_entities.append(entity_name)
 
+            await self._db.commit()
+
+            # ── Waypoint creation (OpenMemory pattern) ────────────────────
+            await self._create_waypoint(claim)
+
+            # ── Collision detection ───────────────────────────────────────
+            collisions = await find_collisions(
+                claim, self._db, graph_backend=self._graph
+            )
+            if collisions:
+                await apply_salience_updates(collisions, self._db)
+                all_collisions.extend(collisions)
+
+            # Add to existing texts for intra-batch dedup
+            existing_texts.append(claim.text)
             stored_claims.append(claim)
 
         await self._db.commit()
@@ -300,8 +331,66 @@ class Tensory:
         return IngestResult(
             episode_id=episode_id or "",
             claims=stored_claims,
+            collisions=all_collisions,
             new_entities=list(set(new_entities)),
         )
+
+    # ── Surprise score (cognitive mechanism #1) ───────────────────────────
+
+    # ── Waypoint creation (OpenMemory pattern) ──────────────────────────
+
+    async def _create_waypoint(self, claim: Claim) -> None:
+        """Link new claim to its most similar existing claim (cosine ≥ 0.75).
+
+        Creates a 1-hop associative link in the waypoints table.
+        This enables waypoint-expanded search and collision detection.
+        """
+        if not claim.embedding or not self._vec_available:
+            return
+
+        try:
+            neighbors = await vector_search(
+                claim.embedding, self._db, limit=5
+            )
+        except Exception:
+            return
+
+        if not neighbors:
+            return
+
+        # Find best match that isn't self
+        best = None
+        for neighbor in neighbors:
+            if neighbor.claim.id != claim.id:
+                best = neighbor
+                break
+
+        if best is None:
+            return
+
+        # cosine similarity threshold
+        if best.score >= 0.75:
+            try:
+                await self._db.execute(
+                    """INSERT OR REPLACE INTO waypoints
+                       (src_claim, dst_claim, similarity)
+                       VALUES (?, ?, ?)""",
+                    (claim.id, best.claim.id, best.score),
+                )
+                await self._db.commit()
+            except Exception:
+                logger.debug("Waypoint creation failed for claim %s", claim.id)
+
+    # ── Dedup helpers ─────────────────────────────────────────────────────
+
+    async def _get_existing_claim_texts(self, limit: int = 200) -> list[str]:
+        """Load recent claim texts for dedup comparison."""
+        cursor = await self._db.execute(
+            "SELECT text FROM claims ORDER BY created_at DESC LIMIT ?",
+            (limit,),
+        )
+        rows = await cursor.fetchall()
+        return [str(row[0]) for row in rows]
 
     # ── Surprise score (cognitive mechanism #1) ───────────────────────────
 
