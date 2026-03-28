@@ -1,20 +1,20 @@
-"""LLM адаптеры для tensory.
+"""LLM adapters for tensory.
 
-tensory принимает любую async функцию `(prompt: str) -> str`.
-Вот готовые адаптеры для популярных LLM провайдеров.
+tensory accepts any async function `(prompt: str) -> str`.
+Here are ready-to-use adapters for popular LLM providers.
 
-Использование:
+Usage:
     from examples.llm_adapters import openai_llm, anthropic_llm, ollama_llm
 
     store = await Tensory.create("memory.db", llm=openai_llm())
 
-    # С прокси (как в openHunter):
+    # With proxy (e.g. openHunter):
     store = await Tensory.create("memory.db", llm=anthropic_llm(
         base_url="http://localhost:8317",
         api_key="signal-hunter-local",
     ))
 
-    # Из env (ANTHROPIC_BASE_URL, ANTHROPIC_API_KEY):
+    # From env (ANTHROPIC_BASE_URL, ANTHROPIC_API_KEY):
     store = await Tensory.create("memory.db", llm=anthropic_from_env())
 """
 
@@ -31,16 +31,16 @@ def openai_llm(
     api_key: str | None = None,
     base_url: str | None = None,
 ) -> object:
-    """OpenAI adapter. Нужен: pip install openai
+    """OpenAI adapter. Requires: pip install openai
 
-    Рекомендуемые модели:
-    - gpt-4o-mini  — дешёвый, быстрый, достаточный для extraction
-    - gpt-4o       — лучшее качество extraction
+    Recommended models:
+    - gpt-4o-mini  — cheap, fast, sufficient for extraction
+    - gpt-4o       — best extraction quality
 
     Args:
-        model: Модель для использования.
-        api_key: API ключ (или env OPENAI_API_KEY).
-        base_url: Custom base URL (для прокси или совместимых API).
+        model: Model to use.
+        api_key: API key (or env OPENAI_API_KEY).
+        base_url: Custom base URL (for proxy or compatible APIs).
     """
     from openai import AsyncOpenAI
 
@@ -57,7 +57,7 @@ def openai_llm(
     return _call
 
 
-# ── Anthropic (прямой + через прокси) ────────────────────────────────────
+# ── Anthropic (direct + via proxy) ───────────────────────────────────────
 
 
 def anthropic_llm(
@@ -66,21 +66,21 @@ def anthropic_llm(
     auth_token: str | None = None,
     base_url: str | None = None,
 ) -> object:
-    """Anthropic Claude adapter. Нужен: pip install anthropic
+    """Anthropic Claude adapter. Requires: pip install anthropic
 
-    Поддерживает прямое подключение и через прокси (CLIProxyAPI и др.)
+    Supports direct connection and via proxy (CLIProxyAPI, etc.)
 
     Args:
-        model: Модель. haiku дешевле для extraction.
-        api_key: API ключ Anthropic (или прокси-ключ, напр. "signal-hunter-local").
-        auth_token: Auth token (альтернатива api_key).
-        base_url: URL прокси (напр. "http://localhost:8317" для CLIProxyAPI).
+        model: Model. Haiku is cheaper for extraction.
+        api_key: Anthropic API key (or proxy key, e.g. "signal-hunter-local").
+        auth_token: Auth token (alternative to api_key).
+        base_url: Proxy URL (e.g. "http://localhost:8317" for CLIProxyAPI).
 
-    Примеры:
-        # Прямое подключение
+    Examples:
+        # Direct connection
         anthropic_llm(api_key="sk-ant-...")
 
-        # Через CLIProxyAPI (как в openHunter)
+        # Via CLIProxyAPI (e.g. openHunter)
         anthropic_llm(base_url="http://localhost:8317", api_key="signal-hunter-local")
     """
     from anthropic import AsyncAnthropic
@@ -105,15 +105,15 @@ def anthropic_llm(
 def anthropic_from_env(
     model: str | None = None,
 ) -> object:
-    """Создаёт Anthropic adapter из переменных окружения.
+    """Create Anthropic adapter from environment variables.
 
-    Читает:
-        ANTHROPIC_BASE_URL  — URL прокси (если есть)
-        ANTHROPIC_API_KEY   — API ключ / прокси ключ
-        ANTHROPIC_AUTH_TOKEN — альтернатива api_key
-        TENSORY_MODEL       — модель (default: claude-haiku-4-5-20251001)
+    Reads:
+        ANTHROPIC_BASE_URL  — Proxy URL (if set)
+        ANTHROPIC_API_KEY   — API key / proxy key
+        ANTHROPIC_AUTH_TOKEN — Alternative to api_key
+        TENSORY_MODEL       — Model (default: claude-haiku-4-5-20251001)
 
-    Совместимо с .env / .env.local из openHunter:
+    Compatible with .env / .env.local from openHunter:
         ANTHROPIC_BASE_URL=http://localhost:8317
         ANTHROPIC_API_KEY=signal-hunter-local
     """
@@ -125,14 +125,14 @@ def anthropic_from_env(
     )
 
 
-# ── Ollama (локальный) ───────────────────────────────────────────────────
+# ── Ollama (local) ───────────────────────────────────────────────────────
 
 
 def ollama_llm(
     model: str = "llama3.1",
     base_url: str = "http://localhost:11434",
 ) -> object:
-    """Ollama adapter. Нужен: установленный Ollama + модель.
+    """Ollama adapter. Requires: Ollama installed + model pulled.
 
     ollama pull llama3.1
     """
@@ -173,19 +173,19 @@ def openai_compatible_llm(
     return _call
 
 
-# ── MCP passthrough (вызывающая модель делает extraction) ─────────────────
+# ── MCP passthrough (calling model handles extraction) ───────────────────
 
 
 def mcp_passthrough_llm() -> object:
-    """Заглушка для MCP-режима.
+    """Stub for MCP mode.
 
-    В MCP-режиме extraction делает НЕ tensory, а вызывающая модель.
-    MCP tool `tensory_add` принимает уже извлечённые claims.
+    In MCP mode, extraction is done by the calling model, NOT tensory.
+    MCP tool `tensory_add` accepts pre-extracted claims.
 
-    Эта функция — для документации. В реальности MCP server
-    использует store.add_claims() напрямую (без LLM).
+    This function is for documentation only. In practice, the MCP server
+    uses store.add_claims() directly (no LLM).
 
-    См. plans/tensory-plan.md → "MCP Protocol" для полной схемы.
+    See plans/tensory-plan.md → "MCP Protocol" for the full scheme.
     """
 
     async def _call(prompt: str) -> str:

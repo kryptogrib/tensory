@@ -1,6 +1,6 @@
-"""tensory MCP server — подключается к Claude Code.
+"""tensory MCP server — connects to Claude Code.
 
-Настройка в Claude Code (.claude/settings.json):
+Configuration in Claude Code (.claude/settings.json):
     "mcpServers": {
         "tensory": {
             "command": "/Users/chelovek/Work/tensory/.venv/bin/python",
@@ -28,14 +28,14 @@ logger = logging.getLogger("tensory-mcp")
 
 mcp = FastMCP("tensory")
 
-# ── Глобальный store (создаётся при первом вызове) ────────────────────────
+# ── Global store (created on first call) ──────────────────────────────────
 
 _store: Any = None
 _lock = asyncio.Lock()
 
 
 async def get_store() -> Any:
-    """Lazy init store с LLM через прокси."""
+    """Lazy init store with LLM via proxy."""
     global _store
     if _store is not None:
         return _store
@@ -46,7 +46,7 @@ async def get_store() -> Any:
 
         from tensory import Tensory
 
-        # LLM для extraction — через прокси (CLIProxyAPI)
+        # LLM for extraction — via proxy (CLIProxyAPI)
         llm = _make_llm()
         embedder = _make_embedder()
         db_path = os.environ.get("TENSORY_DB", "data/tensory_memory.db")
@@ -63,7 +63,7 @@ async def get_store() -> Any:
 
 
 def _check_health(store: Any, llm: Any, embedder: Any) -> dict[str, Any]:
-    """Проверяет какие компоненты активны. Логирует WARNING для отключённых."""
+    """Check which components are active. Logs WARNING for disabled ones."""
     from tensory.embedder import NullEmbedder
 
     health: dict[str, Any] = {
@@ -73,7 +73,7 @@ def _check_health(store: Any, llm: Any, embedder: Any) -> dict[str, Any]:
         "db_path": str(getattr(store, "_path", "unknown")),
     }
 
-    # Громкие предупреждения для отключённых компонентов
+    # Loud warnings for disabled components
     if not health["llm"]:
         logger.warning("⚠️  LLM DISABLED — tensory_add() will fail (no claim extraction)")
     if not health["embedder"]:
@@ -92,12 +92,12 @@ def _check_health(store: Any, llm: Any, embedder: Any) -> dict[str, Any]:
 
 
 def _make_embedder() -> Any:
-    """Создаёт OpenAIEmbedder если есть OPENAI_API_KEY, иначе NullEmbedder."""
+    """Create OpenAIEmbedder if OPENAI_API_KEY is set, otherwise NullEmbedder."""
     api_key = os.environ.get("OPENAI_API_KEY")
     logger.info("OPENAI_API_KEY present: %s (len=%d)", bool(api_key), len(api_key or ""))
     if not api_key:
         logger.warning("No OPENAI_API_KEY — using NullEmbedder (no vector search)")
-        return None  # Tensory.create() подставит NullEmbedder
+        return None  # Tensory.create() will fall back to NullEmbedder
 
     from tensory.embedder import OpenAIEmbedder
 
@@ -107,7 +107,7 @@ def _make_embedder() -> Any:
 
 
 def _make_llm() -> Any:
-    """Создаёт LLM adapter из env vars."""
+    """Create LLM adapter from env vars."""
     base_url = os.environ.get("ANTHROPIC_BASE_URL")
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     model = os.environ.get("TENSORY_MODEL", "claude-haiku-4-5-20251001")
@@ -231,7 +231,7 @@ async def tensory_stats() -> str:
     store = await get_store()
     stats = await store.stats()
 
-    # Добавляем health info к статистике
+    # Add health info to statistics
     from tensory.embedder import NullEmbedder
 
     stats["health"] = {
