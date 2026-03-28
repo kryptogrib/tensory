@@ -44,16 +44,20 @@ async def run_benchmark(
     *,
     conversation_idx: int = 0,
     qa_limit: int | None = None,
+    qa_offset: int = 0,
     db_path: str = "benchmarks/locomo/.cache/tensory_locomo.db",
     search_limit: int = 10,
+    skip_ingest: bool = False,
 ) -> dict[str, Any]:
     """Run the full LoCoMo benchmark pipeline.
 
     Args:
         conversation_idx: Which conversation to use (0-9).
         qa_limit: Limit number of QA questions (None = all).
+        qa_offset: Skip first N QA questions.
         db_path: SQLite database path for Tensory.
         search_limit: Claims per search query.
+        skip_ingest: Reuse existing DB (skip ingestion).
 
     Returns:
         Summary dict with scores and stats.
@@ -95,9 +99,9 @@ async def run_benchmark(
         dim=1536,
     )
 
-    # Clean DB for fresh run
+    # Clean DB for fresh run (unless reusing)
     db = Path(db_path)
-    if db.exists():
+    if not skip_ingest and db.exists():
         db.unlink()
     db.parent.mkdir(parents=True, exist_ok=True)
 
@@ -119,24 +123,29 @@ async def run_benchmark(
     )
 
     # ── 4. Ingest ─────────────────────────────────────────────────────────
-    logger.info("Ingesting %d sessions...", len(conversation.sessions))
-    t0 = time.time()
-    ingest_stats = await ingest_conversation(store, conversation, context=context)
-    ingest_time = time.time() - t0
+    ingest_stats = None
+    ingest_time = 0.0
+    if skip_ingest:
+        logger.info("Skipping ingestion (reusing existing DB)")
+    else:
+        logger.info("Ingesting %d sessions...", len(conversation.sessions))
+        t0 = time.time()
+        ingest_stats = await ingest_conversation(store, conversation, context=context)
+        ingest_time = time.time() - t0
 
-    logger.info(
-        "Ingestion done in %.1fs: %d sessions, %d claims, %d entities",
-        ingest_time,
-        ingest_stats.sessions_ingested,
-        ingest_stats.total_claims,
-        ingest_stats.total_entities,
-    )
+        logger.info(
+            "Ingestion done in %.1fs: %d sessions, %d claims, %d entities",
+            ingest_time,
+            ingest_stats.sessions_ingested,
+            ingest_stats.total_claims,
+            ingest_stats.total_entities,
+        )
 
-    if ingest_stats.errors:
-        logger.warning("Ingestion errors: %s", ingest_stats.errors)
+        if ingest_stats.errors:
+            logger.warning("Ingestion errors: %s", ingest_stats.errors)
 
     # ── 5. Answer QA ──────────────────────────────────────────────────────
-    qa_items = conversation.qa_items
+    qa_items = conversation.qa_items[qa_offset:]
     if qa_limit:
         qa_items = qa_items[:qa_limit]
 
@@ -162,12 +171,13 @@ async def run_benchmark(
         "conversation": conversation.sample_id,
         "scores": summary,
         "ingest": {
-            "sessions": ingest_stats.sessions_ingested,
-            "claims": ingest_stats.total_claims,
-            "entities": ingest_stats.total_entities,
-            "collisions": ingest_stats.total_collisions,
-            "errors": ingest_stats.errors,
+            "sessions": ingest_stats.sessions_ingested if ingest_stats else 0,
+            "claims": ingest_stats.total_claims if ingest_stats else 0,
+            "entities": ingest_stats.total_entities if ingest_stats else 0,
+            "collisions": ingest_stats.total_collisions if ingest_stats else 0,
+            "errors": ingest_stats.errors if ingest_stats else [],
             "time_sec": round(ingest_time, 1),
+            "skipped": skip_ingest,
         },
         "answer": {
             "questions": len(qa_items),
@@ -236,11 +246,17 @@ def main() -> None:
         "--limit", type=int, default=None, help="Limit QA questions (for debugging)"
     )
     parser.add_argument(
+        "--offset", type=int, default=0, help="Skip first N QA questions"
+    )
+    parser.add_argument(
         "--search-limit", type=int, default=10, help="Claims per search query"
     )
     parser.add_argument(
         "--db", type=str, default="benchmarks/locomo/.cache/tensory_locomo.db",
         help="SQLite database path",
+    )
+    parser.add_argument(
+        "--skip-ingest", action="store_true", help="Reuse existing DB"
     )
     parser.add_argument(
         "--verbose", "-v", action="store_true", help="Verbose logging"
@@ -256,7 +272,9 @@ def main() -> None:
         run_benchmark(
             conversation_idx=args.conversation,
             qa_limit=args.limit,
+            qa_offset=args.offset,
             db_path=args.db,
+            skip_ingest=args.skip_ingest,
             search_limit=args.search_limit,
         )
     )

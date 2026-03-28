@@ -16,7 +16,7 @@ import uuid
 from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import aiosqlite
 
@@ -32,12 +32,20 @@ from tensory.models import (
     Context,
     Episode,
     IngestResult,
+    MemoryType,
+    ProceduralResult,
     ReflectResult,
     SearchResult,
 )
 from tensory.prompts import CARA_OPINION_FORMATION, OBSERVATION_SYNTHESIS
 from tensory.schema import create_schema, migrate
-from tensory.search import hybrid_search, load_claim_entities, vector_search
+from tensory.search import (
+    fisher_rerank,
+    hybrid_search,
+    load_claim_entities,
+    should_rerank,
+    vector_search,
+)
 from tensory.temporal import (
     apply_decay as _apply_decay,
 )
@@ -171,6 +179,16 @@ class Tensory:
         # Priming: in-memory counter of recently-searched entities
         self._recent_entities: Counter[str] = Counter()
         self._vec_available: bool = True  # set False if sqlite-vec not loaded
+
+    @property
+    def db(self) -> aiosqlite.Connection:
+        """Public read-only access to the database connection (for service layer)."""
+        return self._db
+
+    @property
+    def graph(self) -> GraphBackend:
+        """Public read-only access to the graph backend (for service layer)."""
+        return self._graph
 
     @classmethod
     async def create(
@@ -329,8 +347,10 @@ class Tensory:
             await self._db.execute(
                 """INSERT INTO claims
                    (id, episode_id, context_id, text, type, confidence, relevance,
-                    salience, decay_rate, valid_from, valid_to, created_at, metadata)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    salience, decay_rate, valid_from, valid_to, created_at, metadata,
+                    memory_type, trigger, steps, termination_condition, success_rate,
+                    usage_count, source_episode_ids)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     claim.id,
                     claim.episode_id,
@@ -345,6 +365,13 @@ class Tensory:
                     claim.valid_to.isoformat() if claim.valid_to else None,
                     claim.created_at.isoformat(),
                     json.dumps(claim.metadata, default=str),
+                    claim.memory_type.value,
+                    claim.trigger,
+                    json.dumps(claim.steps) if claim.steps is not None else None,
+                    claim.termination_condition,
+                    claim.success_rate,
+                    claim.usage_count,
+                    json.dumps(claim.source_episode_ids),
                 ),
             )
 
@@ -486,17 +513,27 @@ class Tensory:
         context: Context | None = None,
         limit: int = 10,
         weights: dict[str, float] | None = None,
+        memory_type: MemoryType | None = None,
+        metric: Literal["cosine", "fisher", "auto"] = "auto",
+        max_result_tokens: int | None = None,
     ) -> list[SearchResult]:
         """Hybrid search across vector, FTS, and graph channels.
 
-        Pipeline: embed query → parallel search → RRF merge → priming
-        boost → reinforce on access.
+        Pipeline: embed query → parallel search → RRF merge
+        → Fisher rerank (if needed) → priming boost → reinforce on access
+        → token budget trim.
 
         Args:
             query: Search query string.
             context: Optional context to weight relevance.
             limit: Maximum results to return.
             weights: Channel weights for RRF (default: vector=0.4, fts=0.3, graph=0.3).
+            memory_type: Optional filter by memory type (semantic, procedural, episodic).
+            metric: Similarity metric for ranking. "cosine" = standard,
+                "fisher" = always rerank with Fisher-Rao, "auto" = rerank
+                only when cosine scores are too close to discriminate.
+            max_result_tokens: Maximum approximate token count across all
+                returned results (word-count estimate × 1.3). None = no limit.
         """
         # Embed the query
         query_embedding: list[float] | None = None
@@ -515,7 +552,16 @@ class Tensory:
             context_id=context.id if context else None,
             limit=limit,
             weights=weights,
+            memory_type=memory_type.value if memory_type else None,
         )
+
+        # ── Fisher rerank (if needed) ────────────────────────────────────
+        if query_embedding and (
+            metric == "fisher" or (metric == "auto" and should_rerank(results))
+        ):
+            results = await fisher_rerank(
+                query_embedding, results, self._db, top_k=min(20, len(results))
+            )
 
         # ── Load entities for results (needed for priming) ────────────────
         for result in results:
@@ -565,6 +611,52 @@ class Tensory:
                     result.relevance = float(rel_row[0])
 
         await self._db.commit()
+
+        # ── Token budget trim ────────────────────────────────────────────
+        if max_result_tokens is not None:
+            trimmed: list[SearchResult] = []
+            token_count = 0
+            for result in results:
+                # Approximate: 1 word ≈ 1.3 tokens
+                claim_tokens = int(len(result.claim.text.split()) * 1.3)
+                if token_count + claim_tokens > max_result_tokens:
+                    break
+                trimmed.append(result)
+                token_count += claim_tokens
+            results = trimmed
+
+        return results
+
+    async def search_procedural(
+        self,
+        query: str,
+        *,
+        context: Context | None = None,
+        limit: int = 10,
+    ) -> list[SearchResult]:
+        """Search for procedural skills matching a query.
+
+        Convenience method: runs hybrid search filtered to PROCEDURAL
+        memory_type, then re-ranks by success_rate * relevance.
+
+        Args:
+            query: What skill is needed (e.g. "how to check crypto price").
+            context: Optional context for relevance weighting.
+            limit: Maximum results.
+        """
+        results = await self.search(
+            query,
+            context=context,
+            memory_type=MemoryType.PROCEDURAL,
+            limit=limit,
+        )
+
+        # Re-rank: blend search score with success_rate
+        for r in results:
+            success_weight = r.claim.success_rate * 0.3
+            r.score = r.score * 0.7 + success_weight
+
+        results.sort(key=lambda r: r.score, reverse=True)
         return results
 
     # ── reflect() — learning via reflection (CARA) ─────────────────────
@@ -639,11 +731,26 @@ class Tensory:
             new_opinions.extend(opinions)
             new_observations.extend(llm_observations)
 
+        # ── Step 6: Procedural skill evolution ────────────────────────
+        evolved_skills: list[Claim] = []
+        procedural_claims = [c for c in claims if c.memory_type == MemoryType.PROCEDURAL]
+        for skill in procedural_claims:
+            # Check if any collision involves this skill
+            skill_collisions = [
+                col
+                for col in all_collisions
+                if col.claim_a.id == skill.id or col.claim_b.id == skill.id
+            ]
+            if skill_collisions:
+                # Collision with a procedural skill = potential skill update
+                evolved_skills.append(skill)
+
         return ReflectResult(
             updated_claims=updated_claims,
             new_observations=new_observations,
             new_opinions=new_opinions,
             collisions=all_collisions,
+            evolved_skills=evolved_skills,
         )
 
     async def _cara_reflect(
@@ -773,6 +880,13 @@ class Tensory:
         type_rows = await cursor.fetchall()
         claims_by_type = {row[0]: row[1] for row in type_rows}
 
+        # Claims by memory type
+        cursor = await self._db.execute(
+            "SELECT memory_type, COUNT(*) FROM claims GROUP BY memory_type"
+        )
+        mt_rows = await cursor.fetchall()
+        claims_by_memory_type = {row[0]: row[1] for row in mt_rows}
+
         # Average salience
         cursor = await self._db.execute("SELECT AVG(salience) FROM claims")
         row = await cursor.fetchone()
@@ -781,6 +895,7 @@ class Tensory:
         return {
             "counts": counts,
             "claims_by_type": claims_by_type,
+            "claims_by_memory_type": claims_by_memory_type,
             "avg_salience": round(avg_salience, 4),
         }
 
@@ -793,6 +908,7 @@ class Tensory:
         source: str = "",
         source_url: str | None = None,
         context: Context | None = None,
+        chunk_threshold: int | None = None,
     ) -> IngestResult:
         """Ingest raw text: store episode → LLM extract → add_claims.
 
@@ -803,6 +919,8 @@ class Tensory:
             source: Source identifier (e.g. "reddit:r/defi").
             source_url: Full URL of the source.
             context: Research goal for context-aware extraction.
+            chunk_threshold: Token count above which long-text segmentation is
+                used. Defaults to 3000. Pass a large number to disable.
         """
         if not self._llm:
             msg = "LLM required for add(). Use add_claims() for pre-extracted claims."
@@ -828,8 +946,23 @@ class Tensory:
         )
         await self._db.commit()
 
-        # Extract claims via LLM
-        claims, relations = await extract_claims(text, self._llm, context=context)
+        # Threshold dispatch: short text → 1 call, long text → segmentation
+        from tensory.chunking import compute_max_segments, estimate_tokens
+        from tensory.extract import extract_long
+
+        threshold = chunk_threshold if chunk_threshold is not None else 3000
+        token_count = estimate_tokens(text)
+
+        if token_count > threshold:
+            max_segs = compute_max_segments(token_count)
+            claims, relations = await extract_long(
+                text,
+                self._llm,
+                max_segments=max_segs,
+                context=context,
+            )
+        else:
+            claims, relations = await extract_claims(text, self._llm, context=context)
 
         # Store relations in graph
         for rel in relations:
@@ -855,6 +988,149 @@ class Tensory:
 
         result.relations = relations
         return result
+
+    # ── add_procedural() — LLM skill extraction + storage ────────────────
+
+    async def add_procedural(
+        self,
+        text: str,
+        *,
+        source: str = "",
+        source_url: str | None = None,
+        context: Context | None = None,
+    ) -> ProceduralResult:
+        """Extract procedural skills from raw experience text.
+
+        Pipeline: store episode → LLM extract skills → add_claims
+        with memory_type=PROCEDURAL → collision detection.
+
+        Uses Skill-MDP framework (ProcMEM arXiv:2602.01869):
+        trigger + steps + termination_condition.
+
+        Args:
+            text: Raw experience text describing a procedure.
+            source: Source identifier.
+            source_url: Full URL of the source.
+            context: Optional research goal context.
+        """
+        if not self._llm:
+            msg = "LLM required for add_procedural(). Configure llm= on Tensory.create()."
+            raise ValueError(msg)
+
+        from tensory.extract import extract_procedural
+
+        # Store episode (Layer 0)
+        episode = Episode(
+            id=uuid.uuid4().hex,
+            raw_text=text,
+            source=source,
+            source_url=source_url,
+        )
+        await self._db.execute(
+            """INSERT INTO episodes (id, raw_text, source, source_url, fetched_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            (
+                episode.id,
+                episode.raw_text,
+                episode.source,
+                episode.source_url,
+                episode.fetched_at.isoformat(),
+            ),
+        )
+        await self._db.commit()
+
+        # Extract procedural skills via LLM
+        skills = await extract_procedural(text, self._llm)
+
+        # Set provenance on each skill
+        for skill in skills:
+            skill.source_episode_ids = [episode.id]
+
+        # Store through standard pipeline (dedup + embed + collisions)
+        stored_skills: list[Claim] = []
+        if skills:
+            result = await self.add_claims(
+                skills,
+                episode_id=episode.id,
+                context_id=context.id if context else None,
+            )
+            stored_skills = result.claims
+
+        return ProceduralResult(
+            episode_id=episode.id,
+            skills=stored_skills,
+        )
+
+    # ── update_skill_feedback() — EMA success_rate + auto-deprecate ───────
+
+    async def update_skill_feedback(
+        self,
+        skill_id: str,
+        *,
+        outcome: bool,
+    ) -> Claim | None:
+        """Update a procedural skill based on usage outcome.
+
+        LLM-free feedback loop (ProcMEM score-based maintenance):
+        - success_rate = exponential moving average
+        - Auto-deprecate if success_rate < 0.3 after 5+ uses
+
+        Args:
+            skill_id: ID of the procedural claim to update.
+            outcome: True = skill worked, False = skill failed.
+
+        Returns:
+            Updated Claim, or None if skill not found.
+        """
+        cursor = await self._db.execute(
+            "SELECT * FROM claims WHERE id = ? AND memory_type = 'procedural'",
+            (skill_id,),
+        )
+        row = await cursor.fetchone()
+        if row is None:
+            return None
+
+        from tensory.search import row_to_claim
+
+        claim = row_to_claim(row)
+
+        # Exponential moving average for success_rate
+        old_rate = claim.success_rate
+        old_count = claim.usage_count
+        reward = 1.0 if outcome else 0.0
+        new_rate = (old_rate * old_count + reward) / (old_count + 1)
+        new_count = old_count + 1
+
+        claim.success_rate = round(new_rate, 4)
+        claim.usage_count = new_count
+
+        # Update DB
+        now = datetime.now(UTC).isoformat()
+        await self._db.execute(
+            """UPDATE claims
+               SET success_rate = ?, usage_count = ?, last_accessed = ?
+               WHERE id = ?""",
+            (claim.success_rate, claim.usage_count, now, skill_id),
+        )
+
+        # Auto-deprecate if consistently failing (ProcMEM maintenance)
+        if claim.success_rate < 0.3 and claim.usage_count >= 5:
+            claim.superseded_at = datetime.now(UTC)
+            await self._db.execute(
+                """UPDATE claims
+                   SET superseded_at = ?, salience = salience * 0.1
+                   WHERE id = ?""",
+                (claim.superseded_at.isoformat(), skill_id),
+            )
+            logger.info(
+                "Deprecated skill %s (success_rate=%.2f, usage=%d)",
+                skill_id[:8],
+                claim.success_rate,
+                claim.usage_count,
+            )
+
+        await self._db.commit()
+        return claim
 
     # ── reevaluate() — re-extract from old episode with new context ───────
 

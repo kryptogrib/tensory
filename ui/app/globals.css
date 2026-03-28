@@ -1,0 +1,249 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-heading: var(--font-sans);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+
+  /* Ember Terminal custom colors */
+  --color-ember-bg: rgb(var(--bg-base));
+  --color-ember-surface: rgb(var(--bg-surface) / 0.8);
+  --color-ember-accent: rgb(var(--accent-primary));
+  --color-ember-accent-secondary: rgb(var(--accent-secondary));
+  --color-ember-accent-deep: rgb(var(--accent-deep));
+  --color-ember-text: rgb(var(--text-primary));
+  --color-ember-text-secondary: rgb(var(--text-secondary));
+  --color-ember-text-tertiary: rgb(var(--text-tertiary));
+  --color-ember-text-muted: rgb(var(--text-muted));
+  --color-ember-positive: rgb(var(--status-positive));
+  --color-ember-negative: rgb(var(--status-negative));
+  --color-ember-decaying: rgb(var(--decaying));
+}
+
+/* Ember Terminal palette */
+:root {
+  --bg-base: 10 9 8;
+  --bg-surface: 10 9 8;
+  --accent-primary: 217 119 6;
+  --accent-secondary: 234 88 12;
+  --accent-deep: 180 83 9;
+  --text-primary: 245 230 211;
+  --text-secondary: 138 126 114;
+  --text-tertiary: 107 101 96;
+  --text-muted: 74 69 64;
+  --status-positive: 163 230 53;
+  --status-negative: 252 165 165;
+  --decaying: 120 113 108;
+}
+
+/* shadcn dark theme — Ember overrides */
+.dark {
+  --background: oklch(0.07 0.01 50);
+  --foreground: oklch(0.92 0.02 70);
+  --card: oklch(0.10 0.01 50);
+  --card-foreground: oklch(0.92 0.02 70);
+  --popover: oklch(0.10 0.01 50);
+  --popover-foreground: oklch(0.92 0.02 70);
+  --primary: oklch(0.70 0.16 65);
+  --primary-foreground: oklch(0.07 0.01 50);
+  --secondary: oklch(0.18 0.01 50);
+  --secondary-foreground: oklch(0.80 0.03 70);
+  --muted: oklch(0.18 0.01 50);
+  --muted-foreground: oklch(0.55 0.02 60);
+  --accent: oklch(0.22 0.02 55);
+  --accent-foreground: oklch(0.70 0.16 65);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(0.25 0.02 55);
+  --input: oklch(0.25 0.02 55);
+  --ring: oklch(0.70 0.16 65);
+  --chart-1: oklch(0.70 0.16 65);
+  --chart-2: oklch(0.65 0.18 45);
+  --chart-3: oklch(0.80 0.20 130);
+  --chart-4: oklch(0.55 0.02 60);
+  --chart-5: oklch(0.40 0.02 55);
+  --radius: 0.5rem;
+  --sidebar: oklch(0.09 0.01 50);
+  --sidebar-foreground: oklch(0.92 0.02 70);
+  --sidebar-primary: oklch(0.70 0.16 65);
+  --sidebar-primary-foreground: oklch(0.07 0.01 50);
+  --sidebar-accent: oklch(0.18 0.01 50);
+  --sidebar-accent-foreground: oklch(0.92 0.02 70);
+  --sidebar-border: oklch(0.25 0.02 55);
+  --sidebar-ring: oklch(0.70 0.16 65);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Fira Code', ui-monospace, monospace;
+  }
+}
+
+/* Graph Explorer animations */
+@keyframes pulse-ring {
+  0% { transform: translate(-50%, -50%) scale(1); opacity: 0.6; }
+  100% { transform: translate(-50%, -50%) scale(1.8); opacity: 0; }
+}
+
+@keyframes breathe {
+  0%, 100% { transform: translate(-50%, -50%) scale(1); }
+  50% { transform: translate(-50%, -50%) scale(1.05); }
+}
+
+@keyframes glow-pulse {
+  0%, 100% { opacity: 0.7; }
+  50% { opacity: 1; }
+}
+
+@keyframes travel-dot {
+  0% { offset-distance: 0%; }
+  100% { offset-distance: 100%; }
+}
+
+/* React Flow theme overrides — Ember Terminal */
+.react-flow__attribution {
+  display: none !important;
+}
+
+.react-flow__background pattern circle {
+  fill: rgba(217, 119, 6, 0.08) !important;
+}
+
+.react-flow__controls {
+  display: none !important;
+}
+
+.react-flow__minimap {
+  display: none !important;
+}
+
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke: #d97706 !important;
+}
+
+.react-flow__node.selected {
+  box-shadow: none !important;
+}
+
+.react-flow__node:focus {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.react-flow__node:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* Hide all connection handles — edges dissolve into nodes */
+.react-flow__handle {
+  opacity: 0 !important;
+  width: 0 !important;
+  height: 0 !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  border: none !important;
+  background: transparent !important;
+  pointer-events: none !important;
+}
+
+/* Remove edge marker dots at connection points */
+.react-flow__edge-interaction {
+  stroke: transparent !important;
+}
+
+/* Remove default React Flow edge selection highlight */
+.react-flow__edge.selected .react-flow__edge-interaction {
+  stroke: transparent !important;
+}
+
+/* Ambient player — vertical volume slider thumb */
+.ambient-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #d97706;
+  box-shadow: 0 0 6px rgba(217, 119, 6, 0.5);
+  cursor: pointer;
+  border: none;
+}
+
+.ambient-slider::-moz-range-thumb {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #d97706;
+  box-shadow: 0 0 6px rgba(217, 119, 6, 0.5);
+  cursor: pointer;
+  border: none;
+}
+
+/* Physics tuner — horizontal slider thumb */
+.physics-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #d97706;
+  box-shadow: 0 0 4px rgba(217, 119, 6, 0.4);
+  cursor: pointer;
+  border: none;
+}
+
+.physics-slider::-moz-range-thumb {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #d97706;
+  box-shadow: 0 0 4px rgba(217, 119, 6, 0.4);
+  cursor: pointer;
+  border: none;
+}

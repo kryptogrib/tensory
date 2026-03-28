@@ -31,6 +31,20 @@ class ClaimType(StrEnum):
     OPINION = "opinion"  # evaluative judgment
 
 
+class MemoryType(StrEnum):
+    """Memory type taxonomy — inspired by PlugMem (arXiv:2603.03296).
+
+    Three-type cognitive memory architecture:
+    - EPISODIC: what happened (raw events)
+    - SEMANTIC: what is true (facts, observations)
+    - PROCEDURAL: how to do things (skills, procedures)
+    """
+
+    EPISODIC = "episodic"
+    SEMANTIC = "semantic"
+    PROCEDURAL = "procedural"
+
+
 # ---------------------------------------------------------------------------
 # Layer 0: RAW — episodes (raw text). Never deleted.
 # ---------------------------------------------------------------------------
@@ -98,6 +112,18 @@ class Claim(BaseModel):
     # Salience (OpenMemory pattern: decay + reinforce)
     salience: float = 1.0  # 0.0–1.0, decays over time
     decay_rate: float | None = None  # per-claim override (None = use type default)
+
+    # Memory type (PlugMem 3-type architecture)
+    memory_type: MemoryType = MemoryType.SEMANTIC
+
+    # Procedural fields (Skill-MDP from ProcMEM: arXiv:2602.01869)
+    trigger: str | None = None  # Activation condition (I_ω)
+    steps: list[str] | None = None  # Execution sequence (π_ω)
+    termination_condition: str | None = None  # When skill completes (β_ω)
+    success_rate: float = 0.5  # Exponential moving average
+    usage_count: int = 0
+    last_used: datetime | None = None  # Last time skill was applied
+    source_episode_ids: list[str] = Field(default_factory=list)  # Provenance
 
     # Temporal validity (when the fact was true in the real world)
     valid_from: datetime | None = None
@@ -170,10 +196,20 @@ class ReflectResult(BaseModel):
 
     Contains updated claims (salience changed), new observations
     (synthesized from patterns), new opinions (CARA-generated),
-    and detected collisions.
+    detected collisions, and evolved procedural skills.
     """
 
-    updated_claims: list[Claim] = []
-    new_observations: list[Claim] = []
-    new_opinions: list[Claim] = []
-    collisions: list[Collision] = []
+    updated_claims: list[Claim] = Field(default_factory=lambda: [])
+    new_observations: list[Claim] = Field(default_factory=lambda: [])
+    new_opinions: list[Claim] = Field(default_factory=lambda: [])
+    collisions: list[Collision] = Field(default_factory=lambda: [])
+    evolved_skills: list[Claim] = Field(default_factory=lambda: [])
+
+
+class ProceduralResult(BaseModel):
+    """Result of procedural memory operations (add/evolve)."""
+
+    episode_id: str = ""
+    skills: list[Claim] = Field(default_factory=lambda: [])
+    updated_skills: list[Claim] = Field(default_factory=lambda: [])
+    deprecated_skills: list[Claim] = Field(default_factory=lambda: [])

@@ -32,10 +32,12 @@ QUESTION: {question}
 
 RULES:
 - Answer based ONLY on the claims above
-- Keep your answer SHORT (1-5 words when possible, matching the style of the expected answer)
-- If the claims don't contain enough information to answer, say exactly: "unanswerable"
-- Do NOT make up information not in the claims
-- Do NOT explain your reasoning, just give the answer
+- Keep your answer SHORT — ideally 1-5 words, maximum one sentence
+- If claims contain dates or time references, use them to calculate exact dates
+- If you have partial evidence, give your BEST answer based on what's available
+- Only say "unanswerable" if the claims contain absolutely NO relevant information
+- Do NOT explain your reasoning, just give the direct answer
+- For "when" questions, prefer absolute dates (e.g. "20 May 2023") over relative ones ("last Saturday")
 
 ANSWER:"""
 

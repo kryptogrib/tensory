@@ -23,14 +23,18 @@ from tensory.models import (
     EntityRelation,
     Episode,
     IngestResult,
+    MemoryType,
+    ProceduralResult,
     ReflectResult,
     SearchResult,
 )
+from tensory.service import TensoryService
 from tensory.store import Tensory
 
 __all__ = [
     # Core
     "Tensory",
+    "TensoryService",
     # Models
     "Claim",
     "ClaimType",
@@ -39,6 +43,8 @@ __all__ = [
     "EntityRelation",
     "Episode",
     "IngestResult",
+    "MemoryType",
+    "ProceduralResult",
     "ReflectResult",
     "SearchResult",
     # Protocols

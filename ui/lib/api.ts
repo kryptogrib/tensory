@@ -1,0 +1,79 @@
+import type {
+  DashboardStats,
+  PaginatedClaims,
+  EntityNode,
+  EdgeData,
+  SubGraph,
+  SearchResult,
+  ClaimDetail,
+} from "./types";
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, init);
+  if (!res.ok) {
+    throw new Error(`API error ${res.status}: ${res.statusText}`);
+  }
+  return res.json() as Promise<T>;
+}
+
+function qs(params: Record<string, string | number | boolean | undefined>): string {
+  const entries = Object.entries(params).filter(
+    ([, v]) => v !== undefined && v !== ""
+  );
+  if (entries.length === 0) return "";
+  return "?" + new URLSearchParams(
+    entries.map(([k, v]) => [k, String(v)])
+  ).toString();
+}
+
+export async function fetchStats(): Promise<DashboardStats> {
+  return apiFetch<DashboardStats>("/api/stats");
+}
+
+export async function fetchClaims(params: {
+  offset?: number;
+  limit?: number;
+  type?: string;
+  entity?: string;
+  min_confidence?: number;
+  min_salience?: number;
+  sort_by?: string;
+  sort_dir?: string;
+}): Promise<PaginatedClaims> {
+  return apiFetch<PaginatedClaims>(`/api/claims${qs(params)}`);
+}
+
+export async function fetchGraphEntities(params: {
+  limit?: number;
+  min_mentions?: number;
+}): Promise<EntityNode[]> {
+  return apiFetch<EntityNode[]>(`/api/graph/entities${qs(params)}`);
+}
+
+export async function fetchGraphEdges(params: {
+  entity?: string;
+}): Promise<EdgeData[]> {
+  return apiFetch<EdgeData[]>(`/api/graph/edges${qs(params)}`);
+}
+
+export async function fetchSubgraph(
+  entity: string,
+  depth?: number
+): Promise<SubGraph> {
+  return apiFetch<SubGraph>(
+    `/api/graph/subgraph${qs({ entity, depth })}`
+  );
+}
+
+export async function searchClaims(
+  q: string,
+  limit?: number
+): Promise<SearchResult[]> {
+  return apiFetch<SearchResult[]>(`/api/search${qs({ q, limit })}`);
+}
+
+export async function fetchClaimDetail(id: string): Promise<ClaimDetail> {
+  return apiFetch<ClaimDetail>(`/api/claims/${encodeURIComponent(id)}`);
+}

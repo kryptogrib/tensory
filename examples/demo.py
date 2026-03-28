@@ -1,8 +1,8 @@
 """tensory integration demo — run this to see everything in action.
 
 Usage:
-    python examples/demo.py                    # без LLM (ручные claims)
-    OPENAI_API_KEY=sk-... python examples/demo.py --llm   # с LLM extraction
+    python examples/demo.py                    # without LLM (manual claims)
+    OPENAI_API_KEY=sk-... python examples/demo.py --llm   # with LLM extraction
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ import os
 import sys
 
 
-# ── Цвета для вывода ──────────────────────────────────────────────────────
+# ── Output colors ─────────────────────────────────────────────────────────
 
 GREEN = "\033[92m"
 YELLOW = "\033[93m"
@@ -36,20 +36,20 @@ def info(msg: str) -> None:
     print(f"  {DIM}{msg}{RESET}")
 
 
-# ── LLM адаптеры ─────────────────────────────────────────────────────────
+# ── LLM adapters ─────────────────────────────────────────────────────────
 
 
 class FakeLLM:
-    """Имитация LLM для тестирования без API ключа.
+    """Fake LLM for testing without an API key.
 
-    Возвращает захардкоженный JSON — как будто LLM проанализировал текст.
-    В production замени на OpenAI/Anthropic/Ollama.
+    Returns hardcoded JSON — as if an LLM analyzed the text.
+    In production, replace with OpenAI/Anthropic/Ollama.
     """
 
     async def __call__(self, prompt: str) -> str:
         import json
 
-        # Простая эвристика: разные ответы для разных текстов
+        # Simple heuristic: different responses for different texts
         if "EigenLayer" in prompt and "Google" in prompt:
             return json.dumps({
                 "claims": [
@@ -109,18 +109,18 @@ class FakeLLM:
 
 
 def make_openai_llm() -> object:
-    """Создаёт LLM адаптер для OpenAI. Нужен OPENAI_API_KEY."""
+    """Create an LLM adapter for OpenAI. Requires OPENAI_API_KEY."""
     try:
         from openai import AsyncOpenAI
     except ImportError:
-        print("  pip install tensory[openai]  — для OpenAI адаптера")
+        print("  pip install tensory[openai]  — for the OpenAI adapter")
         sys.exit(1)
 
     client = AsyncOpenAI()
 
     async def openai_llm(prompt: str) -> str:
         response = await client.chat.completions.create(
-            model="gpt-4o-mini",  # дешёвый и быстрый
+            model="gpt-4o-mini",  # cheap and fast
             messages=[{"role": "user", "content": prompt}],
             temperature=0,
         )
@@ -129,19 +129,19 @@ def make_openai_llm() -> object:
     return openai_llm
 
 
-# ── Основной demo ────────────────────────────────────────────────────────
+# ── Main demo ────────────────────────────────────────────────────────────
 
 
 async def demo_without_llm() -> None:
-    """Полная демо без LLM — добавляем claims вручную."""
+    """Full demo without LLM — adding claims manually."""
     from tensory import Claim, ClaimType, Tensory
 
-    section("1. Создаём store (in-memory)")
+    section("1. Create store (in-memory)")
     store = await Tensory.create(":memory:")
-    ok("Store создан (SQLite in-memory, FTS5, sqlite-vec)")
+    ok("Store created (SQLite in-memory, FTS5, sqlite-vec)")
 
-    # ── Контекст ──────────────────────────────────────────────────────
-    section("2. Создаём research context")
+    # ── Context ───────────────────────────────────────────────────────
+    section("2. Create research context")
     ctx = await store.create_context(
         goal="Track DeFi team movements and protocol partnerships",
         domain="crypto",
@@ -149,8 +149,8 @@ async def demo_without_llm() -> None:
     ok(f"Context: '{ctx.goal}'")
     ok(f"ID: {ctx.id[:12]}...")
 
-    # ── Добавляем claims ──────────────────────────────────────────────
-    section("3. Добавляем claims (ручной режим, без LLM)")
+    # ── Add claims ────────────────────────────────────────────────────
+    section("3. Add claims (manual mode, no LLM)")
     r1 = await store.add_claims(
         [
             Claim(
@@ -177,16 +177,16 @@ async def demo_without_llm() -> None:
         ok(f"[{c.type.value}] {c.text}")
         info(f"  salience={c.salience:.2f}  sentiment={sentiment}{urgent}")
 
-    # ── Поиск ─────────────────────────────────────────────────────────
+    # ── Search ────────────────────────────────────────────────────────
     section("4. Hybrid search")
     results = await store.search("EigenLayer")
-    ok(f"Найдено: {len(results)} результатов для 'EigenLayer'")
+    ok(f"Found: {len(results)} results for 'EigenLayer'")
     for r in results:
         ok(f"[score={r.score:.3f}] {r.claim.text}")
 
     # ── Collision detection ───────────────────────────────────────────
-    section("5. Collision detection — добавляем противоречие")
-    info("Добавляем: 'EigenLayer has 65 team members' (конфликт с '50 members')")
+    section("5. Collision detection — adding a contradiction")
+    info("Adding: 'EigenLayer has 65 team members' (conflicts with '50 members')")
     r2 = await store.add_claims([
         Claim(
             text="EigenLayer has 65 team members after hiring spree",
@@ -195,27 +195,27 @@ async def demo_without_llm() -> None:
         ),
     ])
     if r2.collisions:
-        ok(f"Обнаружено {len(r2.collisions)} коллизий!")
+        ok(f"Detected {len(r2.collisions)} collisions!")
         for col in r2.collisions:
             print(f"    {YELLOW}⚡ {col.type}{RESET}: '{col.claim_b.text[:50]}...'")
             print(f"       score={col.score}  shared={col.shared_entities}")
     else:
-        info("Коллизий не обнаружено (structural collision сработает если entities совпадают)")
+        info("No collisions detected (structural collision triggers when entities match)")
 
     # ── Dedup ─────────────────────────────────────────────────────────
-    section("6. Deduplication — повторный claim блокируется")
+    section("6. Deduplication — duplicate claim is blocked")
     r3 = await store.add_claims([
         Claim(text="EigenLayer has 50 team members", entities=["EigenLayer"]),
     ])
     if len(r3.claims) == 0:
-        ok("Дубликат заблокирован! (MinHash/LSH dedup)")
+        ok("Duplicate blocked! (MinHash/LSH dedup)")
     else:
-        info("Claim добавлен (текст достаточно отличался)")
+        info("Claim added (text was sufficiently different)")
 
     # ── Timeline ──────────────────────────────────────────────────────
-    section("7. Timeline — история entity")
+    section("7. Timeline — entity history")
     timeline = await store.timeline("EigenLayer")
-    ok(f"Timeline для EigenLayer: {len(timeline)} claims")
+    ok(f"Timeline for EigenLayer: {len(timeline)} claims")
     for i, c in enumerate(timeline):
         superseded = " [SUPERSEDED]" if c.superseded_at else ""
         print(f"    {i + 1}. {c.text}{superseded}")
@@ -230,39 +230,39 @@ async def demo_without_llm() -> None:
     ok(f"By type: {stats['claims_by_type']}")
 
     # ── Consolidation ─────────────────────────────────────────────────
-    section("9. Consolidation (группировка в observations)")
+    section("9. Consolidation (grouping into observations)")
     obs = await store.consolidate(days=30, min_cluster=2)
     if obs:
-        ok(f"Создано {len(obs)} observation(s)")
+        ok(f"Created {len(obs)} observation(s)")
         for o in obs:
             print(f"    📝 {o.text}")
     else:
-        info("Не хватает claims с общими entities для кластеризации")
+        info("Not enough claims with shared entities for clustering")
 
     await store.close()
-    print(f"\n{GREEN}{BOLD}  ✅ Demo завершено успешно!{RESET}\n")
+    print(f"\n{GREEN}{BOLD}  ✅ Demo completed successfully!{RESET}\n")
 
 
 async def demo_with_llm(use_real_llm: bool = False) -> None:
-    """Demo с LLM extraction — автоматическое извлечение claims из текста."""
+    """Demo with LLM extraction — automatic claim extraction from text."""
     from tensory import Tensory
 
     llm = make_openai_llm() if use_real_llm else FakeLLM()
-    llm_name = "OpenAI gpt-4o-mini" if use_real_llm else "FakeLLM (встроенный)"
+    llm_name = "OpenAI gpt-4o-mini" if use_real_llm else "FakeLLM (built-in)"
 
-    section(f"LLM EXTRACTION (через {llm_name})")
+    section(f"LLM EXTRACTION (via {llm_name})")
 
     store = await Tensory.create(":memory:", llm=llm)  # type: ignore[arg-type]
 
-    # ── Контекст ──────────────────────────────────────────────────────
+    # ── Context ───────────────────────────────────────────────────────
     ctx = await store.create_context(
         goal="Track DeFi team movements and protocol partnerships",
         domain="crypto",
     )
 
-    # ── add() — текст → автоматическое извлечение ─────────────────────
+    # ── add() — text → automatic extraction ────────────────────────────
     section("10. store.add() — raw text → claims (LLM extraction)")
-    info("Текст: 'Google announced partnership with EigenLayer for cloud restaking...'")
+    info("Text: 'Google announced partnership with EigenLayer for cloud restaking...'")
 
     result = await store.add(
         "Google announced partnership with EigenLayer for cloud restaking. "
@@ -271,26 +271,26 @@ async def demo_with_llm(use_real_llm: bool = False) -> None:
         context=ctx,
     )
 
-    ok(f"Episode сохранён: {result.episode_id[:12]}...")
-    ok(f"Извлечено {len(result.claims)} claims:")
+    ok(f"Episode saved: {result.episode_id[:12]}...")
+    ok(f"Extracted {len(result.claims)} claims:")
     for c in result.claims:
         print(f"    → [{c.type.value}] {c.text}")
         print(f"      entities={c.entities}  confidence={c.confidence}")
 
     if result.relations:
-        ok(f"Извлечено {len(result.relations)} relations:")
+        ok(f"Extracted {len(result.relations)} relations:")
         for rel in result.relations:
             print(f"    → {rel.from_entity} —[{rel.rel_type}]→ {rel.to_entity}")
 
-    # ── reevaluate() — тот же текст, другой контекст ──────────────────
-    section("11. store.reevaluate() — тот же текст, другая 'линза'")
+    # ── reevaluate() — same text, different context ────────────────────
+    section("11. store.reevaluate() — same text, different 'lens'")
     tech_ctx = await store.create_context(
         goal="Track Big Tech AI and cloud strategy",
         domain="tech",
     )
-    info(f"Новый контекст: '{tech_ctx.goal}'")
+    info(f"New context: '{tech_ctx.goal}'")
 
-    # Для FakeLLM: подменяем ответ для нового контекста
+    # For FakeLLM: swap the response for the new context
     if isinstance(llm, FakeLLM):
         import json
 
@@ -315,12 +315,12 @@ async def demo_with_llm(use_real_llm: bool = False) -> None:
         llm.__call__ = switched_call  # type: ignore[assignment]
 
     reeval = await store.reevaluate(result.episode_id, tech_ctx)
-    ok(f"Re-extracted {len(reeval.claims)} claims через новый контекст:")
+    ok(f"Re-extracted {len(reeval.claims)} claims via new context:")
     for c in reeval.claims:
         print(f"    → [{c.type.value}] {c.text}")
 
-    # ── Финальные stats ───────────────────────────────────────────────
-    section("12. Финальная статистика")
+    # ── Final stats ───────────────────────────────────────────────────
+    section("12. Final statistics")
     stats = await store.stats()
     ok(f"Episodes: {stats['counts']['episodes']}")
     ok(f"Claims: {stats['counts']['claims']}")
@@ -328,22 +328,22 @@ async def demo_with_llm(use_real_llm: bool = False) -> None:
     ok(f"Relations: {stats['counts']['entity_relations']}")
 
     await store.close()
-    print(f"\n{GREEN}{BOLD}  ✅ LLM Demo завершено!{RESET}\n")
+    print(f"\n{GREEN}{BOLD}  ✅ LLM Demo completed!{RESET}\n")
 
 
 async def main() -> None:
     use_real_llm = "--llm" in sys.argv
 
     if use_real_llm and not os.environ.get("OPENAI_API_KEY"):
-        print(f"{YELLOW}⚠ OPENAI_API_KEY не установлен. Используй:{RESET}")
+        print(f"{YELLOW}⚠ OPENAI_API_KEY not set. Usage:{RESET}")
         print(f"  OPENAI_API_KEY=sk-... python examples/demo.py --llm")
-        print(f"  Или без --llm для FakeLLM\n")
+        print(f"  Or without --llm for FakeLLM\n")
         sys.exit(1)
 
-    # Часть 1: без LLM
+    # Part 1: without LLM
     await demo_without_llm()
 
-    # Часть 2: с LLM
+    # Part 2: with LLM
     await demo_with_llm(use_real_llm=use_real_llm)
 
 

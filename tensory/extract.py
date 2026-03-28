@@ -19,7 +19,8 @@ import json
 import logging
 from typing import Any, Protocol, cast, runtime_checkable
 
-from tensory.models import Claim, ClaimType, Context, EntityRelation
+from tensory.models import Claim, ClaimType, Context, EntityRelation, MemoryType
+from tensory.prompts import PROCEDURAL_INDUCTION_PROMPT
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +46,12 @@ DOMAIN: {domain}
 Extract claims from this text that are RELEVANT to the research goal above.
 Skip information that is not relevant to the goal.
 
+IMPORTANT temporal rules:
+- If the text has a date header (e.g. "[Session 3 — 2:00 pm on 25 May, 2023]"), use it as the reference date
+- Convert ALL relative time references ("last Saturday", "yesterday", "next month") to absolute dates using the reference date
+- Include the specific date IN the claim text itself, e.g. "On 20 May 2023, Melanie ran a charity race"
+- The "temporal" field should contain the exact date in YYYY-MM-DD format when possible
+
 For each claim, also:
 - Rate its relevance to the research goal (0.0-1.0)
 - Identify entity relationships (who did what to whom)
@@ -56,10 +63,10 @@ Return ONLY valid JSON (no markdown, no explanation):
 {{
   "claims": [
     {{
-      "text": "atomic claim",
+      "text": "atomic claim WITH dates included in the text",
       "type": "fact|experience|observation|opinion",
       "entities": ["Entity1", "Entity2"],
-      "temporal": "when this happened, or null",
+      "temporal": "YYYY-MM-DD or descriptive date, never null if any time reference exists",
       "confidence": 0.0-1.0,
       "relevance": 0.0-1.0
     }}
@@ -78,6 +85,12 @@ If nothing is relevant to the research goal, return {{"claims": [], "relations":
 
 EXTRACT_PROMPT_GENERIC = """Extract all factual claims and entity relationships from this text.
 
+IMPORTANT temporal rules:
+- If the text has a date header (e.g. "[Session 3 — 2:00 pm on 25 May, 2023]"), use it as the reference date
+- Convert ALL relative time references ("last Saturday", "yesterday", "next month") to absolute dates using the reference date
+- Include the specific date IN the claim text itself, e.g. "On 20 May 2023, Melanie ran a charity race"
+- The "temporal" field should contain the exact date in YYYY-MM-DD format when possible
+
 TEXT:
 {text}
 
@@ -85,10 +98,10 @@ Return ONLY valid JSON (no markdown, no explanation):
 {{
   "claims": [
     {{
-      "text": "atomic claim",
+      "text": "atomic claim WITH dates included in the text",
       "type": "fact|experience|observation|opinion",
       "entities": ["Entity1", "Entity2"],
-      "temporal": "when this happened, or null",
+      "temporal": "YYYY-MM-DD or descriptive date, never null if any time reference exists",
       "confidence": 0.0-1.0,
       "relevance": 1.0
     }}
@@ -140,6 +153,165 @@ async def extract_claims(
     except Exception as exc:
         logger.warning("LLM extraction failed: %s", exc)
         return [], []
+
+
+async def extract_procedural(
+    text: str,
+    llm: LLMProtocol,
+) -> list[Claim]:
+    """Extract procedural skills from raw text using LLM.
+
+    Uses Skill-MDP framework (ProcMEM): trigger + steps + termination.
+
+    Args:
+        text: Raw experience text to extract skills from.
+        llm: LLM callable (prompt → response text).
+
+    Returns:
+        List of Claim objects with memory_type=PROCEDURAL.
+    """
+    prompt = PROCEDURAL_INDUCTION_PROMPT.format(text=text)
+
+    try:
+        response = await llm(prompt)
+        return _parse_procedural_extraction(response)
+    except Exception as exc:
+        logger.warning("Procedural extraction failed: %s", exc)
+        return []
+
+
+async def extract_long(
+    text: str,
+    llm: LLMProtocol,
+    *,
+    max_segments: int,
+    context: Context | None = None,
+    document_date: str | None = None,
+) -> tuple[list[Claim], list[EntityRelation]]:
+    """Extract claims from long text via topic segmentation + parallel extraction.
+
+    Pipeline:
+    1. segment_text() → list of (title, section_text)
+    2. For each section: prepend header → extract_claims() in parallel
+    3. Deduplicate entity names across sections
+    4. Aggregate all claims + relations
+
+    Falls back to paragraph splitting if segmentation fails.
+
+    Args:
+        text: Long text to extract from.
+        llm: LLM callable.
+        max_segments: Maximum sections to split into.
+        context: Optional research goal.
+        document_date: Date of the document (preserved in section headers).
+    """
+    import asyncio
+
+    from tensory.chunking import (
+        build_section_header,
+        deduplicate_entities,
+        normalize_entity,
+        segment_text,
+    )
+
+    # Step 1: Segment text into thematic sections
+    sections = await segment_text(text, llm, max_segments=max_segments)
+
+    if not sections:
+        return await extract_claims(text, llm, context=context)
+
+    # Step 2: Build extraction tasks with section headers
+    total = len(sections)
+
+    async def _extract_section(
+        index: int, title: str, section_text: str
+    ) -> tuple[list[Claim], list[EntityRelation]]:
+        header = build_section_header(
+            document_date=document_date,
+            section_index=index,
+            total_sections=total,
+            section_title=title,
+        )
+        augmented_text = f"{header}\n\n{section_text}"
+        return await extract_claims(augmented_text, llm, context=context)
+
+    # Step 3: Parallel extraction
+    tasks = [_extract_section(i, title, sec_text) for i, (title, sec_text) in enumerate(sections)]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    # Step 4: Aggregate results
+    all_claims: list[Claim] = []
+    all_relations: list[EntityRelation] = []
+    for result in results:
+        if isinstance(result, BaseException):
+            logger.warning("Section extraction failed: %s", result)
+            continue
+        claims, relations = result
+        all_claims.extend(claims)
+        all_relations.extend(relations)
+
+    # Step 5: Deduplicate entity names across sections
+    all_entity_names: list[str] = []
+    for claim in all_claims:
+        all_entity_names.extend(claim.entities)
+    canonical = deduplicate_entities(all_entity_names)
+    canonical_map: dict[str, str] = {}
+    for name in canonical:
+        canonical_map[normalize_entity(name)] = name
+    for claim in all_claims:
+        claim.entities = [canonical_map.get(normalize_entity(e), e) for e in claim.entities]
+
+    return all_claims, all_relations
+
+
+def _parse_procedural_extraction(response: str) -> list[Claim]:
+    """Parse LLM response into procedural Claim objects."""
+    text = response.strip()
+    if text.startswith("```"):
+        lines = text.split("\n")
+        text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+
+    try:
+        data: dict[str, Any] = json.loads(text)
+    except json.JSONDecodeError:
+        logger.warning("Failed to parse procedural extraction response as JSON")
+        return []
+
+    skills: list[Claim] = []
+    for item in cast(list[dict[str, Any]], data.get("skills", [])):
+        trigger = str(item.get("trigger", "")).strip()
+        steps_raw: Any = item.get("steps", [])
+        if isinstance(steps_raw, list):
+            steps: list[str] = [str(s).strip() for s in cast(list[object], steps_raw) if s]
+        else:
+            steps = []
+
+        if not trigger and not steps:
+            continue  # skip empty skills
+
+        termination = str(item.get("termination_condition", "")).strip() or None
+        outcome = str(item.get("expected_outcome", "")).strip()
+
+        # Build descriptive text for embedding/FTS search
+        steps_text = "; ".join(steps) if steps else "no steps"
+        claim_text = f"Skill: when {trigger}, do: {steps_text}"
+        if outcome:
+            claim_text += f" → {outcome}"
+
+        skills.append(
+            Claim(
+                text=claim_text,
+                type=ClaimType.EXPERIENCE,  # procedural derived from experience
+                memory_type=MemoryType.PROCEDURAL,
+                trigger=trigger,
+                steps=steps,
+                termination_condition=termination,
+                entities=_parse_list(item.get("entities", [])),
+                confidence=0.5,  # new skills start at neutral confidence
+            )
+        )
+
+    return skills
 
 
 # ── Parsing ───────────────────────────────────────────────────────────────

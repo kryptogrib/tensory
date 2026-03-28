@@ -11,9 +11,14 @@ data/*
 .env
 /.claude
 /docs
+!/docs/superpowers/
 env.local
 res.sh
 .mcp.json
 benchmarks/locomo/.cache/
 benchmarks/locomo/results/
 /.superpowers
+*.db
+*.db-*
+
+/ref

@@ -14,13 +14,13 @@ Usage::
     # OpenAI (recommended: cheap and high quality)
     embedder = OpenAIEmbedder(api_key="sk-...")
 
-    # OpenAI с уменьшенным dimension (ещё дешевле, хранение меньше)
+    # OpenAI with reduced dimension (cheaper, less storage)
     embedder = OpenAIEmbedder(model="text-embedding-3-small", dim=512)
 
-    # OpenAI через прокси (как в openHunter)
+    # OpenAI via proxy (e.g. openHunter)
     embedder = OpenAIEmbedder(base_url="http://localhost:8317", api_key="local")
 
-    # Testing / FTS-only (без API ключа)
+    # Testing / FTS-only (no API key needed)
     embedder = NullEmbedder()
 
 Pricing (OpenAI, March 2026):
