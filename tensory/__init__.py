@@ -23,6 +23,8 @@ from tensory.models import (
     EntityRelation,
     Episode,
     IngestResult,
+    MemoryType,
+    ProceduralResult,
     ReflectResult,
     SearchResult,
 )
@@ -39,6 +41,8 @@ __all__ = [
     "EntityRelation",
     "Episode",
     "IngestResult",
+    "MemoryType",
+    "ProceduralResult",
     "ReflectResult",
     "SearchResult",
     # Protocols
