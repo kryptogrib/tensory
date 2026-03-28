@@ -61,6 +61,32 @@ class GraphBackend(Protocol):
         """Find shortest path between two entities. Returns entity IDs."""
         ...
 
+    async def list_entities(
+        self,
+        *,
+        limit: int = 100,
+        min_mentions: int = 1,
+    ) -> list[dict[str, object]]:
+        """List entities ordered by mention_count descending."""
+        ...
+
+    async def list_edges(
+        self,
+        *,
+        entity_filter: str | None = None,
+    ) -> list[dict[str, object]]:
+        """List active edges, optionally filtered by entity ID."""
+        ...
+
+    async def subgraph(
+        self,
+        entity_name: str,
+        *,
+        depth: int = 2,
+    ) -> dict[str, list[dict[str, object]]]:
+        """Get subgraph of nodes and edges reachable from an entity."""
+        ...
+
     async def close(self) -> None:
         """Release resources."""
         ...
@@ -233,6 +259,105 @@ class SQLiteGraphBackend:
             return []
         return str(row[0]).split(",")
 
+    async def list_entities(
+        self,
+        *,
+        limit: int = 100,
+        min_mentions: int = 1,
+    ) -> list[dict[str, object]]:
+        """List entities ordered by mention_count descending."""
+        cursor = await self._db.execute(
+            """SELECT id, name, type, mention_count, first_seen
+               FROM entities
+               WHERE mention_count >= ?
+               ORDER BY mention_count DESC
+               LIMIT ?""",
+            (min_mentions, limit),
+        )
+        rows = await cursor.fetchall()
+        cols = ("id", "name", "type", "mention_count", "first_seen")
+        return [dict(zip(cols, row, strict=False)) for row in rows]
+
+    async def list_edges(
+        self,
+        *,
+        entity_filter: str | None = None,
+    ) -> list[dict[str, object]]:
+        """List active (non-expired) edges, optionally filtered by entity ID."""
+        if entity_filter:
+            cursor = await self._db.execute(
+                """SELECT id, from_entity, to_entity, rel_type, fact,
+                          episode_id, confidence, created_at, expired_at
+                   FROM entity_relations
+                   WHERE expired_at IS NULL
+                     AND (from_entity = ? OR to_entity = ?)""",
+                (entity_filter, entity_filter),
+            )
+        else:
+            cursor = await self._db.execute(
+                """SELECT id, from_entity, to_entity, rel_type, fact,
+                          episode_id, confidence, created_at, expired_at
+                   FROM entity_relations
+                   WHERE expired_at IS NULL""",
+            )
+        rows = await cursor.fetchall()
+        cols = (
+            "id", "from_entity", "to_entity", "rel_type", "fact",
+            "episode_id", "confidence", "created_at", "expired_at",
+        )
+        return [dict(zip(cols, row, strict=False)) for row in rows]
+
+    async def subgraph(
+        self,
+        entity_name: str,
+        *,
+        depth: int = 2,
+    ) -> dict[str, list[dict[str, object]]]:
+        """Get subgraph of nodes and edges reachable from an entity."""
+        reachable_ids = await self.traverse(entity_name, depth)
+        if not reachable_ids:
+            return {"nodes": [], "edges": []}
+
+        # Include the seed entity so edges from it are captured
+        seed_cursor = await self._db.execute(
+            "SELECT id FROM entities WHERE name = ?", (entity_name,),
+        )
+        seed_row = await seed_cursor.fetchone()
+        if seed_row is not None:
+            seed_id: str = seed_row[0]
+            if seed_id not in reachable_ids:
+                reachable_ids = [seed_id, *reachable_ids]
+
+        # Fetch entity rows for reachable IDs
+        placeholders = ", ".join("?" for _ in reachable_ids)
+        cursor = await self._db.execute(
+            f"""SELECT id, name, type, mention_count, first_seen
+                FROM entities WHERE id IN ({placeholders})""",
+            reachable_ids,
+        )
+        node_rows = await cursor.fetchall()
+        node_cols = ("id", "name", "type", "mention_count", "first_seen")
+        nodes: list[dict[str, object]] = [dict(zip(node_cols, r, strict=False)) for r in node_rows]
+
+        # Fetch edges between reachable entities (active only)
+        cursor = await self._db.execute(
+            f"""SELECT id, from_entity, to_entity, rel_type, fact,
+                       episode_id, confidence, created_at, expired_at
+                FROM entity_relations
+                WHERE expired_at IS NULL
+                  AND from_entity IN ({placeholders})
+                  AND to_entity IN ({placeholders})""",
+            [*reachable_ids, *reachable_ids],
+        )
+        edge_rows = await cursor.fetchall()
+        edge_cols = (
+            "id", "from_entity", "to_entity", "rel_type", "fact",
+            "episode_id", "confidence", "created_at", "expired_at",
+        )
+        edges: list[dict[str, object]] = [dict(zip(edge_cols, r, strict=False)) for r in edge_rows]
+
+        return {"nodes": nodes, "edges": edges}
+
     async def close(self) -> None:
         """No-op — connection lifecycle managed by Tensory."""
 
@@ -395,6 +520,35 @@ class Neo4jBackend:
             if record is None:
                 return []
             return [str(eid) for eid in record["entity_ids"]]
+
+    async def list_entities(
+        self,
+        *,
+        limit: int = 100,
+        min_mentions: int = 1,
+    ) -> list[dict[str, object]]:
+        """List entities ordered by mention_count descending."""
+        msg = "list_entities not yet implemented for Neo4j"
+        raise NotImplementedError(msg)
+
+    async def list_edges(
+        self,
+        *,
+        entity_filter: str | None = None,
+    ) -> list[dict[str, object]]:
+        """List active edges, optionally filtered by entity ID."""
+        msg = "list_edges not yet implemented for Neo4j"
+        raise NotImplementedError(msg)
+
+    async def subgraph(
+        self,
+        entity_name: str,
+        *,
+        depth: int = 2,
+    ) -> dict[str, list[dict[str, object]]]:
+        """Get subgraph of nodes and edges reachable from an entity."""
+        msg = "subgraph not yet implemented for Neo4j"
+        raise NotImplementedError(msg)
 
     async def close(self) -> None:
         """Close the Neo4j driver connection."""
