@@ -438,13 +438,15 @@ class TensoryService:
                 )
                 rel_rows = await rel_cursor.fetchall()
                 rel_cols = [d[0] for d in rel_cursor.description] if rel_cursor.description else []
-                seen_rel_ids: set[str] = set()
+                # Deduplicate by content (from+to+rel_type), not by row ID.
+                # Multiple ingests can create duplicate relations with different IDs.
+                seen_keys: set[str] = set()
                 for rr in rel_rows:
                     rd = dict(zip(rel_cols, rr, strict=False))
-                    rel_id = str(rd["id"])
-                    if rel_id in seen_rel_ids:
+                    dedup_key = f"{rd['from_name']}|{rd['to_name']}|{rd['rel_type']}"
+                    if dedup_key in seen_keys:
                         continue
-                    seen_rel_ids.add(rel_id)
+                    seen_keys.add(dedup_key)
                     related_entities.append(
                         EntityRelation(
                             from_entity=str(rd["from_name"]),

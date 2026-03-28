@@ -148,34 +148,43 @@ function ExpandedRow({
           <span className="uppercase tracking-wider" style={{ color: "#6b6560" }}>
             relations
           </span>
-          <ul className="mt-1 space-y-1.5">
+          <ul className="mt-1 space-y-1">
             {detail.related_entities.map((r, i) => (
-              <li key={i}>
-                <div style={{ color: "#8a7e72" }}>
-                  <span style={{ color: "#f5e6d3" }}>{r.from_entity}</span>
-                  <span style={{ color: "#4a4540" }}>{" → "}</span>
+              <li key={i} className="group relative inline-flex flex-wrap items-center gap-1 w-full">
+                <span style={{ color: "#f5e6d3" }}>{r.from_entity}</span>
+                <span style={{ color: "#4a4540" }}>→</span>
+                <span
+                  className="rounded px-1 py-0.5 text-[0.6rem]"
+                  style={{
+                    background: "rgba(234, 88, 12, 0.08)",
+                    color: "#ea580c",
+                    border: "1px solid rgba(234, 88, 12, 0.12)",
+                  }}
+                >
+                  {r.rel_type}
+                </span>
+                <span style={{ color: "#4a4540" }}>→</span>
+                <span style={{ color: "#f5e6d3" }}>{r.to_entity}</span>
+                {r.confidence < 1.0 && (
+                  <span className="text-[0.55rem]" style={{ color: "#4a4540" }}>
+                    {r.confidence.toFixed(2)}
+                  </span>
+                )}
+                {/* Hover tooltip with fact */}
+                {r.fact && (
                   <span
-                    className="rounded px-1 py-0.5 text-[0.6rem]"
+                    className="pointer-events-none absolute left-0 top-full z-50 mt-1 hidden rounded px-2 py-1 text-[0.6rem] group-hover:block"
                     style={{
-                      background: "rgba(234, 88, 12, 0.08)",
-                      color: "#ea580c",
-                      border: "1px solid rgba(234, 88, 12, 0.12)",
+                      background: "rgba(10, 9, 8, 0.95)",
+                      border: "1px solid rgba(217, 119, 6, 0.15)",
+                      color: "#8a7e72",
+                      maxWidth: 400,
+                      whiteSpace: "normal",
+                      backdropFilter: "blur(8px)",
                     }}
                   >
-                    {r.rel_type}
+                    {r.fact}
                   </span>
-                  <span style={{ color: "#4a4540" }}>{" → "}</span>
-                  <span style={{ color: "#f5e6d3" }}>{r.to_entity}</span>
-                  {r.confidence < 1.0 && (
-                    <span className="ml-2 text-[0.55rem]" style={{ color: "#4a4540" }}>
-                      conf: {r.confidence.toFixed(2)}
-                    </span>
-                  )}
-                </div>
-                {r.fact && (
-                  <div className="mt-0.5 text-[0.6rem]" style={{ color: "#6b6560", paddingLeft: 8 }}>
-                    &quot;{r.fact}&quot;
-                  </div>
                 )}
               </li>
             ))}
