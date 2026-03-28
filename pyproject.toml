@@ -27,6 +27,7 @@ dependencies = [
 openai = ["openai>=1.0"]
 neo4j = ["neo4j>=5.0"]
 mcp = ["mcp[cli]>=1.0"]
+ui = ["fastapi>=0.115", "uvicorn[standard]>=0.34", "httpx>=0.28"]
 
 [project.urls]
 Repository = "https://github.com/tensory/tensory"
@@ -66,4 +67,4 @@ select = ["E", "F", "I", "W", "UP", "B", "SIM"]
 ignore = ["E501"]  # line length handled by formatter
 
 [tool.ruff.lint.isort]
-known-first-party = ["tensory"]
+known-first-party = ["tensory", "api"]
