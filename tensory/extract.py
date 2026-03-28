@@ -196,8 +196,11 @@ def _parse_procedural_extraction(response: str) -> list[Claim]:
     skills: list[Claim] = []
     for item in cast(list[dict[str, Any]], data.get("skills", [])):
         trigger = str(item.get("trigger", "")).strip()
-        steps_raw = item.get("steps", [])
-        steps = [str(s).strip() for s in steps_raw if s] if isinstance(steps_raw, list) else []
+        steps_raw: Any = item.get("steps", [])
+        if isinstance(steps_raw, list):
+            steps: list[str] = [str(s).strip() for s in cast(list[object], steps_raw) if s]
+        else:
+            steps = []
 
         if not trigger and not steps:
             continue  # skip empty skills

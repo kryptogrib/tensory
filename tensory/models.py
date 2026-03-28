@@ -199,11 +199,11 @@ class ReflectResult(BaseModel):
     detected collisions, and evolved procedural skills.
     """
 
-    updated_claims: list[Claim] = Field(default_factory=list)
-    new_observations: list[Claim] = Field(default_factory=list)
-    new_opinions: list[Claim] = Field(default_factory=list)
-    collisions: list[Collision] = Field(default_factory=list)
-    evolved_skills: list[Claim] = Field(default_factory=list)
+    updated_claims: list[Claim] = Field(default_factory=lambda: [])
+    new_observations: list[Claim] = Field(default_factory=lambda: [])
+    new_opinions: list[Claim] = Field(default_factory=lambda: [])
+    collisions: list[Collision] = Field(default_factory=lambda: [])
+    evolved_skills: list[Claim] = Field(default_factory=lambda: [])
 
 
 class ProceduralResult(BaseModel):

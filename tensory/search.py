@@ -70,13 +70,24 @@ async def hybrid_search(
     internal_limit = max(limit * 3, 20)  # fetch more for better RRF merge
 
     # All three channels in parallel — graceful degradation on failure
-    fts_task = fts_search(query, db, context_id=context_id, limit=internal_limit, memory_type=memory_type)
+    fts_task = fts_search(
+        query, db, context_id=context_id, limit=internal_limit, memory_type=memory_type
+    )
     vec_task = (
-        vector_search(embedding, db, context_id=context_id, limit=internal_limit, memory_type=memory_type)
+        vector_search(
+            embedding, db, context_id=context_id, limit=internal_limit, memory_type=memory_type
+        )
         if embedding
         else _empty_results()
     )
-    graph_task = graph_search(query, graph_backend, db, context_id=context_id, limit=internal_limit, memory_type=memory_type)
+    graph_task = graph_search(
+        query,
+        graph_backend,
+        db,
+        context_id=context_id,
+        limit=internal_limit,
+        memory_type=memory_type,
+    )
 
     results = await asyncio.gather(fts_task, vec_task, graph_task, return_exceptions=True)
 
@@ -151,7 +162,7 @@ async def fts_search(
 
     results: list[SearchResult] = []
     for row in rows:
-        claim = _row_to_claim(row)
+        claim = row_to_claim(row)
         fts_rank = float(row["rank"]) if "rank" in row else 0.0
         score = -fts_rank if fts_rank < 0 else fts_rank
 
@@ -200,7 +211,7 @@ async def vector_search(
 
     results: list[SearchResult] = []
     for row in rows:
-        claim = _row_to_claim(row)
+        claim = row_to_claim(row)
         distance = float(row["distance"])
         # Convert cosine distance to similarity score (1 - distance)
         score = max(0.0, 1.0 - distance)
@@ -292,7 +303,7 @@ async def graph_search(
 
     results: list[SearchResult] = []
     for i, row in enumerate(rows):
-        claim = _row_to_claim(row)
+        claim = row_to_claim(row)
         # Score by position (graph doesn't have a natural similarity score)
         score = 1.0 / (1 + i)
         results.append(
@@ -369,21 +380,22 @@ async def load_claim_entities(claim_id: str, db: aiosqlite.Connection) -> list[s
     return [str(row[0]) for row in rows]
 
 
-def _row_to_claim(row: aiosqlite.Row) -> Claim:
+def row_to_claim(row: aiosqlite.Row) -> Claim:
     """Convert a database row to a Claim model."""
     metadata_raw = row["metadata"]
     metadata: dict[str, object] = {}
     if metadata_raw:
         metadata = json.loads(str(metadata_raw))
 
-    # Parse procedural JSON columns
-    steps_raw = row["steps"] if "steps" in row.keys() else None
+    # sqlite3.Row: `in` checks values not keys — must use row.keys() for column existence
+    keys = row.keys()  # noqa: SIM118
+    steps_raw = row["steps"] if "steps" in keys else None  # noqa: SIM401
     steps: list[str] | None = json.loads(str(steps_raw)) if steps_raw else None
 
-    source_ep_raw = row["source_episode_ids"] if "source_episode_ids" in row.keys() else None
+    source_ep_raw = row["source_episode_ids"] if "source_episode_ids" in keys else None  # noqa: SIM401
     source_episode_ids: list[str] = json.loads(str(source_ep_raw)) if source_ep_raw else []
 
-    last_used_raw = row["last_used"] if "last_used" in row.keys() else None
+    last_used_raw = row["last_used"] if "last_used" in keys else None  # noqa: SIM401
 
     return Claim(
         id=row["id"],
@@ -405,12 +417,20 @@ def _row_to_claim(row: aiosqlite.Row) -> Claim:
         else None,
         superseded_by=row["superseded_by"],
         metadata=metadata,
-        memory_type=MemoryType(row["memory_type"]) if "memory_type" in row.keys() and row["memory_type"] else MemoryType.SEMANTIC,
-        trigger=row["trigger"] if "trigger" in row.keys() else None,
+        memory_type=MemoryType(row["memory_type"])
+        if "memory_type" in keys and row["memory_type"]
+        else MemoryType.SEMANTIC,  # noqa: SIM401
+        trigger=row["trigger"] if "trigger" in keys else None,  # noqa: SIM401
         steps=steps,
-        termination_condition=row["termination_condition"] if "termination_condition" in row.keys() else None,
-        success_rate=float(row["success_rate"]) if "success_rate" in row.keys() and row["success_rate"] is not None else 0.5,
-        usage_count=int(row["usage_count"]) if "usage_count" in row.keys() and row["usage_count"] is not None else 0,
+        termination_condition=row["termination_condition"]  # noqa: SIM401
+        if "termination_condition" in keys
+        else None,
+        success_rate=float(row["success_rate"])
+        if "success_rate" in keys and row["success_rate"] is not None
+        else 0.5,
+        usage_count=int(row["usage_count"])
+        if "usage_count" in keys and row["usage_count"] is not None
+        else 0,
         last_used=datetime.fromisoformat(str(last_used_raw)) if last_used_raw else None,
         source_episode_ids=source_episode_ids,
     )

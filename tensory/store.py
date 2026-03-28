@@ -691,7 +691,8 @@ class Tensory:
         for skill in procedural_claims:
             # Check if any collision involves this skill
             skill_collisions = [
-                col for col in all_collisions
+                col
+                for col in all_collisions
                 if col.claim_a.id == skill.id or col.claim_b.id == skill.id
             ]
             if skill_collisions:
@@ -833,6 +834,13 @@ class Tensory:
         type_rows = await cursor.fetchall()
         claims_by_type = {row[0]: row[1] for row in type_rows}
 
+        # Claims by memory type
+        cursor = await self._db.execute(
+            "SELECT memory_type, COUNT(*) FROM claims GROUP BY memory_type"
+        )
+        mt_rows = await cursor.fetchall()
+        claims_by_memory_type = {row[0]: row[1] for row in mt_rows}
+
         # Average salience
         cursor = await self._db.execute("SELECT AVG(salience) FROM claims")
         row = await cursor.fetchone()
@@ -841,6 +849,7 @@ class Tensory:
         return {
             "counts": counts,
             "claims_by_type": claims_by_type,
+            "claims_by_memory_type": claims_by_memory_type,
             "avg_salience": round(avg_salience, 4),
         }
 
@@ -1017,9 +1026,9 @@ class Tensory:
         if row is None:
             return None
 
-        from tensory.search import _row_to_claim
+        from tensory.search import row_to_claim
 
-        claim = _row_to_claim(row)
+        claim = row_to_claim(row)
 
         # Exponential moving average for success_rate
         old_rate = claim.success_rate

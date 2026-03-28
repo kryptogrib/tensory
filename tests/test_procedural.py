@@ -125,7 +125,12 @@ class FakeProceduralLLM:
         elif "update" in prompt.lower() or "evaluate" in prompt.lower():
             return json.dumps(
                 {
-                    "updated_steps": ["open Binance", "enter BTC/USDT", "check spread", "show price"],
+                    "updated_steps": [
+                        "open Binance",
+                        "enter BTC/USDT",
+                        "check spread",
+                        "show price",
+                    ],
                     "updated_trigger": None,
                     "updated_termination": None,
                     "should_deprecate": False,
@@ -183,19 +188,23 @@ async def test_extract_procedural_handles_llm_failure() -> None:
 async def test_search_filters_by_memory_type(store: Tensory) -> None:
     """search() with memory_type filter returns only matching claims."""
     # Add a semantic claim
-    await store.add_claims([
-        Claim(text="Bitcoin price is $50K", entities=["Bitcoin"]),
-    ])
+    await store.add_claims(
+        [
+            Claim(text="Bitcoin price is $50K", entities=["Bitcoin"]),
+        ]
+    )
     # Add a procedural claim
-    await store.add_claims([
-        Claim(
-            text="Skill: when user asks for price, do: open exchange; check price",
-            memory_type=MemoryType.PROCEDURAL,
-            trigger="user asks for price",
-            steps=["open exchange", "check price"],
-            entities=["Bitcoin"],
-        ),
-    ])
+    await store.add_claims(
+        [
+            Claim(
+                text="Skill: when user asks for price, do: open exchange; check price",
+                memory_type=MemoryType.PROCEDURAL,
+                trigger="user asks for price",
+                steps=["open exchange", "check price"],
+                entities=["Bitcoin"],
+            ),
+        ]
+    )
 
     # Search all — should get both
     all_results = await store.search("Bitcoin")
@@ -271,9 +280,11 @@ async def test_add_procedural_requires_llm() -> None:
 async def test_search_procedural_returns_only_skills(proc_store: Tensory) -> None:
     """search_procedural() is a convenience for search(memory_type=PROCEDURAL)."""
     # Add a semantic claim and a procedural claim
-    await proc_store.add_claims([
-        Claim(text="Bitcoin price is $50K", entities=["Bitcoin"]),
-    ])
+    await proc_store.add_claims(
+        [
+            Claim(text="Bitcoin price is $50K", entities=["Bitcoin"]),
+        ]
+    )
     await proc_store.add_procedural(
         "I opened Binance, entered BTC/USDT, and showed the price.",
         source="test",
@@ -316,16 +327,18 @@ async def test_search_procedural_ranks_by_success_rate(proc_store: Tensory) -> N
 
 async def test_update_skill_feedback_positive(store: Tensory) -> None:
     """Positive feedback increases success_rate and usage_count."""
-    result = await store.add_claims([
-        Claim(
-            text="Skill: check price",
-            memory_type=MemoryType.PROCEDURAL,
-            trigger="check",
-            steps=["step1"],
-            success_rate=0.5,
-            usage_count=4,
-        ),
-    ])
+    result = await store.add_claims(
+        [
+            Claim(
+                text="Skill: check price",
+                memory_type=MemoryType.PROCEDURAL,
+                trigger="check",
+                steps=["step1"],
+                success_rate=0.5,
+                usage_count=4,
+            ),
+        ]
+    )
     skill_id = result.claims[0].id
 
     updated = await store.update_skill_feedback(skill_id, outcome=True)
@@ -336,16 +349,18 @@ async def test_update_skill_feedback_positive(store: Tensory) -> None:
 
 async def test_update_skill_feedback_negative(store: Tensory) -> None:
     """Negative feedback decreases success_rate."""
-    result = await store.add_claims([
-        Claim(
-            text="Skill: bad method",
-            memory_type=MemoryType.PROCEDURAL,
-            trigger="bad",
-            steps=["step1"],
-            success_rate=0.5,
-            usage_count=4,
-        ),
-    ])
+    result = await store.add_claims(
+        [
+            Claim(
+                text="Skill: bad method",
+                memory_type=MemoryType.PROCEDURAL,
+                trigger="bad",
+                steps=["step1"],
+                success_rate=0.5,
+                usage_count=4,
+            ),
+        ]
+    )
     skill_id = result.claims[0].id
 
     updated = await store.update_skill_feedback(skill_id, outcome=False)
@@ -356,16 +371,18 @@ async def test_update_skill_feedback_negative(store: Tensory) -> None:
 
 async def test_update_skill_feedback_deprecates_low_success(store: Tensory) -> None:
     """Skills with success_rate < 0.3 after 5+ uses get superseded."""
-    result = await store.add_claims([
-        Claim(
-            text="Skill: failing method",
-            memory_type=MemoryType.PROCEDURAL,
-            trigger="fail",
-            steps=["step1"],
-            success_rate=0.25,
-            usage_count=5,
-        ),
-    ])
+    result = await store.add_claims(
+        [
+            Claim(
+                text="Skill: failing method",
+                memory_type=MemoryType.PROCEDURAL,
+                trigger="fail",
+                steps=["step1"],
+                success_rate=0.25,
+                usage_count=5,
+            ),
+        ]
+    )
     skill_id = result.claims[0].id
 
     updated = await store.update_skill_feedback(skill_id, outcome=False)
@@ -392,10 +409,12 @@ async def test_reflect_includes_procedural_skills(proc_store: Tensory) -> None:
         source="test",
     )
     # Add semantic claims
-    await proc_store.add_claims([
-        Claim(text="Bitcoin price reached $50K", entities=["Bitcoin"]),
-        Claim(text="Binance is the largest exchange", entities=["Binance"]),
-    ])
+    await proc_store.add_claims(
+        [
+            Claim(text="Bitcoin price reached $50K", entities=["Bitcoin"]),
+            Claim(text="Binance is the largest exchange", entities=["Binance"]),
+        ]
+    )
 
     result = await proc_store.reflect("How to check crypto prices?")
 
@@ -403,3 +422,21 @@ async def test_reflect_includes_procedural_skills(proc_store: Tensory) -> None:
     assert isinstance(result, ReflectResult)
     # evolved_skills field should exist (may be empty if no collisions)
     assert isinstance(result.evolved_skills, list)
+
+
+# ── Stats tests ──────────────────────────────────────────────────────────
+
+
+async def test_stats_includes_procedural_counts(proc_store: Tensory) -> None:
+    """stats() breaks down claims by memory_type."""
+    await proc_store.add_claims(
+        [
+            Claim(text="Bitcoin is $50K"),
+        ]
+    )
+    await proc_store.add_procedural("I did a procedure", source="test")
+
+    stats = await proc_store.stats()
+    assert "claims_by_memory_type" in stats
+    assert stats["claims_by_memory_type"].get("procedural", 0) >= 1
+    assert stats["claims_by_memory_type"].get("semantic", 0) >= 1

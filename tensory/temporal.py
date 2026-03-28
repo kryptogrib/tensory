@@ -239,14 +239,15 @@ def _row_to_claim(row: aiosqlite.Row) -> Claim:
     if metadata_raw:
         metadata = json.loads(str(metadata_raw))
 
-    # Parse procedural JSON columns
-    steps_raw = row["steps"] if "steps" in row.keys() else None
+    # sqlite3.Row: `in` checks values not keys — must use row.keys() for column existence
+    keys = row.keys()  # noqa: SIM118
+    steps_raw = row["steps"] if "steps" in keys else None  # noqa: SIM401
     steps: list[str] | None = json.loads(str(steps_raw)) if steps_raw else None
 
-    source_ep_raw = row["source_episode_ids"] if "source_episode_ids" in row.keys() else None
+    source_ep_raw = row["source_episode_ids"] if "source_episode_ids" in keys else None  # noqa: SIM401
     source_episode_ids: list[str] = json.loads(str(source_ep_raw)) if source_ep_raw else []
 
-    last_used_raw = row["last_used"] if "last_used" in row.keys() else None
+    last_used_raw = row["last_used"] if "last_used" in keys else None  # noqa: SIM401
 
     return Claim(
         id=row["id"],
@@ -266,12 +267,20 @@ def _row_to_claim(row: aiosqlite.Row) -> Claim:
         ),
         superseded_by=row["superseded_by"],
         metadata=metadata,
-        memory_type=MemoryType(row["memory_type"]) if "memory_type" in row.keys() and row["memory_type"] else MemoryType.SEMANTIC,
-        trigger=row["trigger"] if "trigger" in row.keys() else None,
+        memory_type=MemoryType(row["memory_type"])
+        if "memory_type" in keys and row["memory_type"]
+        else MemoryType.SEMANTIC,  # noqa: SIM401
+        trigger=row["trigger"] if "trigger" in keys else None,  # noqa: SIM401
         steps=steps,
-        termination_condition=row["termination_condition"] if "termination_condition" in row.keys() else None,
-        success_rate=float(row["success_rate"]) if "success_rate" in row.keys() and row["success_rate"] is not None else 0.5,
-        usage_count=int(row["usage_count"]) if "usage_count" in row.keys() and row["usage_count"] is not None else 0,
+        termination_condition=row["termination_condition"]  # noqa: SIM401
+        if "termination_condition" in keys
+        else None,
+        success_rate=float(row["success_rate"])
+        if "success_rate" in keys and row["success_rate"] is not None
+        else 0.5,
+        usage_count=int(row["usage_count"])
+        if "usage_count" in keys and row["usage_count"] is not None
+        else 0,
         last_used=datetime.fromisoformat(str(last_used_raw)) if last_used_raw else None,
         source_episode_ids=source_episode_ids,
     )
