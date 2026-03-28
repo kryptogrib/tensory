@@ -1,7 +1,19 @@
 "use client";
 
+/* ─── Salience Edge ──────────────────────────────────────────────────
+ *
+ * Game-quality edge rendering:
+ *   1. Computes true node centers via useInternalNode (bypasses Handle system)
+ *   2. SVG linearGradient dissolves edge into both nodes
+ *   3. Confidence → visual style (solid/dashed, thickness, opacity)
+ *   4. Hover tooltip shows rel_type
+ *   5. Traveling impulse dot on strong edges
+ *
+ * Inspired by: Eve Online star map, Obsidian graph, Neo4j Bloom
+ * ──────────────────────────────────────────────────────────────────── */
+
 import { memo, useState, useMemo } from "react";
-import { type EdgeProps } from "@xyflow/react";
+import { type EdgeProps, useInternalNode } from "@xyflow/react";
 
 export type SalienceEdgeData = {
   relType: string;
@@ -11,23 +23,21 @@ export type SalienceEdgeData = {
 
 function getEdgeStyle(confidence: number) {
   if (confidence > 0.7) {
-    return { strokeDasharray: undefined, strokeWidth: 1.8, opacity: 0.35, color: "#d97706" };
+    return { dash: undefined, width: 1.6, opacity: 0.45, color: "#d97706" };
   }
   if (confidence >= 0.4) {
-    return { strokeDasharray: "8 4", strokeWidth: 1.1, opacity: 0.18, color: "#d97706" };
+    return { dash: "6 4", width: 1.0, opacity: 0.22, color: "#d97706" };
   }
   if (confidence >= 0.2) {
-    return { strokeDasharray: "4 6", strokeWidth: 0.7, opacity: 0.1, color: "#b45309" };
+    return { dash: "3 5", width: 0.6, opacity: 0.12, color: "#b45309" };
   }
-  return { strokeDasharray: "2 8", strokeWidth: 0.4, opacity: 0.05, color: "#78716c" };
+  return { dash: "2 7", width: 0.4, opacity: 0.06, color: "#78716c" };
 }
 
 function SalienceEdgeComponent({
   id,
-  sourceX,
-  sourceY,
-  targetX,
-  targetY,
+  source,
+  target,
   data,
   selected,
   style: externalStyle,
@@ -37,15 +47,25 @@ function SalienceEdgeComponent({
   const confidence = edgeData?.confidence ?? 0.5;
   const relType = edgeData?.relType ?? "";
 
+  // Compute TRUE node centers — bypasses Handle system entirely
+  const sourceNode = useInternalNode(source);
+  const targetNode = useInternalNode(target);
+
   const edgeStyle = useMemo(() => getEdgeStyle(confidence), [confidence]);
 
-  // Simple straight path
-  const edgePath = `M ${sourceX} ${sourceY} L ${targetX} ${targetY}`;
-  const labelX = (sourceX + targetX) / 2;
-  const labelY = (sourceY + targetY) / 2;
+  if (!sourceNode || !targetNode) return null;
 
-  // Unique gradient ID per edge
-  const gradientId = `edge-fade-${id}`;
+  // Get absolute center of each node
+  const sx = sourceNode.internals.positionAbsolute.x + (sourceNode.measured.width ?? 0) / 2;
+  const sy = sourceNode.internals.positionAbsolute.y + (sourceNode.measured.height ?? 0) / 2;
+  const tx = targetNode.internals.positionAbsolute.x + (targetNode.measured.width ?? 0) / 2;
+  const ty = targetNode.internals.positionAbsolute.y + (targetNode.measured.height ?? 0) / 2;
+
+  const edgePath = `M ${sx} ${sy} L ${tx} ${ty}`;
+  const labelX = (sx + tx) / 2;
+  const labelY = (sy + ty) / 2;
+
+  const gradientId = `edge-dissolve-${id}`;
 
   // External opacity from selection highlighting
   const externalOpacity =
@@ -55,9 +75,9 @@ function SalienceEdgeComponent({
 
   const finalOpacity = externalOpacity ?? (
     selected
-      ? Math.min(edgeStyle.opacity * 3, 0.7)
+      ? Math.min(edgeStyle.opacity * 2.5, 0.7)
       : hovered
-        ? Math.min(edgeStyle.opacity * 2.5, 0.5)
+        ? Math.min(edgeStyle.opacity * 2, 0.5)
         : edgeStyle.opacity
   );
 
@@ -68,54 +88,66 @@ function SalienceEdgeComponent({
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      {/* Gradient: fades at both ends so edge dissolves into nodes */}
+      {/* Gradient: strong dissolve at both ends */}
       <defs>
         <linearGradient
           id={gradientId}
-          x1={sourceX}
-          y1={sourceY}
-          x2={targetX}
-          y2={targetY}
           gradientUnits="userSpaceOnUse"
+          x1={sx} y1={sy}
+          x2={tx} y2={ty}
         >
           <stop offset="0%" stopColor={strokeColor} stopOpacity={0} />
-          <stop offset="12%" stopColor={strokeColor} stopOpacity={1} />
-          <stop offset="88%" stopColor={strokeColor} stopOpacity={1} />
+          <stop offset="20%" stopColor={strokeColor} stopOpacity={0.7} />
+          <stop offset="50%" stopColor={strokeColor} stopOpacity={0.5} />
+          <stop offset="80%" stopColor={strokeColor} stopOpacity={0.7} />
           <stop offset="100%" stopColor={strokeColor} stopOpacity={0} />
         </linearGradient>
       </defs>
 
-      {/* Invisible wider path for easier hover */}
+      {/* Invisible wide path for hover */}
       <path
         d={edgePath}
         fill="none"
         stroke="transparent"
-        strokeWidth={16}
+        strokeWidth={18}
         style={{ cursor: "pointer" }}
       />
 
-      {/* Visible edge with dissolving gradient */}
+      {/* Visible edge with dissolve gradient */}
       <path
         id={id}
         d={edgePath}
         fill="none"
         stroke={`url(#${gradientId})`}
-        strokeWidth={hovered ? edgeStyle.strokeWidth * 1.5 : edgeStyle.strokeWidth}
-        strokeDasharray={edgeStyle.strokeDasharray}
+        strokeWidth={hovered ? edgeStyle.width * 1.5 : edgeStyle.width}
+        strokeDasharray={edgeStyle.dash}
         opacity={finalOpacity}
         strokeLinecap="round"
         style={{ transition: "opacity 0.3s ease, stroke-width 0.2s ease" }}
       />
+
+      {/* Subtle glow on hover */}
+      {hovered && (
+        <path
+          d={edgePath}
+          fill="none"
+          stroke="#d97706"
+          strokeWidth={edgeStyle.width * 3}
+          opacity={0.08}
+          strokeLinecap="round"
+          style={{ filter: "blur(4px)" }}
+        />
+      )}
 
       {/* Traveling impulse dot for strong edges */}
       {confidence > 0.6 && (
         <circle
           r={1.5}
           fill="#fbbf24"
-          opacity={0.5}
+          opacity={0.4}
           style={{
             offsetPath: `path('${edgePath}')`,
-            animation: `travel-dot ${2.5 + Math.random() * 2}s linear infinite`,
+            animation: `travel-dot ${3 + Math.random() * 2}s linear infinite`,
           }}
         />
       )}
