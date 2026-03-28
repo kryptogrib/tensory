@@ -581,6 +581,38 @@ class Tensory:
         await self._db.commit()
         return results
 
+    async def search_procedural(
+        self,
+        query: str,
+        *,
+        context: Context | None = None,
+        limit: int = 10,
+    ) -> list[SearchResult]:
+        """Search for procedural skills matching a query.
+
+        Convenience method: runs hybrid search filtered to PROCEDURAL
+        memory_type, then re-ranks by success_rate * relevance.
+
+        Args:
+            query: What skill is needed (e.g. "how to check crypto price").
+            context: Optional context for relevance weighting.
+            limit: Maximum results.
+        """
+        results = await self.search(
+            query,
+            context=context,
+            memory_type=MemoryType.PROCEDURAL,
+            limit=limit,
+        )
+
+        # Re-rank: blend search score with success_rate
+        for r in results:
+            success_weight = r.claim.success_rate * 0.3
+            r.score = r.score * 0.7 + success_weight
+
+        results.sort(key=lambda r: r.score, reverse=True)
+        return results
+
     # ── reflect() — learning via reflection (CARA) ─────────────────────
 
     async def reflect(

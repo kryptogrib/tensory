@@ -266,3 +266,46 @@ async def test_add_procedural_requires_llm() -> None:
     with pytest.raises(ValueError, match="LLM required"):
         await store.add_procedural("text")
     await store.close()
+
+
+async def test_search_procedural_returns_only_skills(proc_store: Tensory) -> None:
+    """search_procedural() is a convenience for search(memory_type=PROCEDURAL)."""
+    # Add a semantic claim and a procedural claim
+    await proc_store.add_claims([
+        Claim(text="Bitcoin price is $50K", entities=["Bitcoin"]),
+    ])
+    await proc_store.add_procedural(
+        "I opened Binance, entered BTC/USDT, and showed the price.",
+        source="test",
+    )
+
+    results = await proc_store.search_procedural("price")
+    assert len(results) >= 1
+    assert all(r.claim.memory_type == MemoryType.PROCEDURAL for r in results)
+
+
+async def test_search_procedural_ranks_by_success_rate(proc_store: Tensory) -> None:
+    """search_procedural() boosts claims with higher success_rate."""
+    # Manually add two procedural claims with different success rates
+    low = Claim(
+        text="Skill: slow way to check price",
+        memory_type=MemoryType.PROCEDURAL,
+        trigger="check price",
+        steps=["step1"],
+        success_rate=0.2,
+        usage_count=10,
+    )
+    high = Claim(
+        text="Skill: fast way to check price",
+        memory_type=MemoryType.PROCEDURAL,
+        trigger="check price",
+        steps=["step1", "step2"],
+        success_rate=0.95,
+        usage_count=10,
+    )
+    await proc_store.add_claims([low, high])
+
+    results = await proc_store.search_procedural("check price")
+    assert len(results) >= 2
+    # Higher success_rate should rank first
+    assert results[0].claim.success_rate >= results[1].claim.success_rate
