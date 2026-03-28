@@ -47,6 +47,14 @@ function SalienceEdgeComponent({
   const confidence = edgeData?.confidence ?? 0.5;
   const relType = edgeData?.relType ?? "";
 
+  // Stable animation duration — computed once per edge, not on every render
+  const travelDuration = useMemo(() => {
+    // Deterministic hash from edge id for consistent speed
+    let hash = 0;
+    for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) | 0;
+    return 3 + (Math.abs(hash) % 200) / 100; // 3s to 5s, stable per edge
+  }, [id]);
+
   // Compute TRUE node centers — bypasses Handle system entirely
   const sourceNode = useInternalNode(source);
   const targetNode = useInternalNode(target);
@@ -139,7 +147,7 @@ function SalienceEdgeComponent({
         />
       )}
 
-      {/* Traveling impulse dot for strong edges */}
+      {/* Traveling impulse dot for strong edges — stable duration per edge */}
       {confidence > 0.6 && (
         <circle
           r={1.5}
@@ -147,7 +155,7 @@ function SalienceEdgeComponent({
           opacity={0.4}
           style={{
             offsetPath: `path('${edgePath}')`,
-            animation: `travel-dot ${3 + Math.random() * 2}s linear infinite`,
+            animation: `travel-dot ${travelDuration}s linear infinite`,
           }}
         />
       )}

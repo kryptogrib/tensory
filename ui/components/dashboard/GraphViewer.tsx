@@ -324,9 +324,9 @@ function GraphCanvas({ mode, physics }: GraphCanvasProps) {
       simNode.x = node.position.x;
       simNode.y = node.position.y;
 
-      // Throttle: update neighbors at max ~20fps
+      // Throttle: update neighbors at ~30fps
       const now = Date.now();
-      if (now - lastDragUpdateRef.current < 50) return;
+      if (now - lastDragUpdateRef.current < 32) return;
       lastDragUpdateRef.current = now;
 
       // Apply velocity nudge to neighbors based on confidence

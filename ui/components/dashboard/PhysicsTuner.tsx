@@ -41,10 +41,11 @@ interface SliderRowProps {
 }
 
 function SliderRow({ label, value, min, max, step, onChange }: SliderRowProps) {
+  const pct = ((value - min) / (max - min)) * 100;
   return (
-    <div className="flex items-center gap-2 py-0.5">
+    <div className="flex items-center gap-1.5 py-0.5">
       <span
-        className="w-[90px] shrink-0 text-[0.55rem] uppercase tracking-wider"
+        className="w-[62px] shrink-0 text-[0.5rem] uppercase tracking-wider"
         style={{ color: "#8a7e72" }}
       >
         {label}
@@ -56,13 +57,13 @@ function SliderRow({ label, value, min, max, step, onChange }: SliderRowProps) {
         step={step}
         value={value}
         onChange={(e) => onChange(parseFloat(e.target.value))}
-        className="physics-slider h-1 flex-1 cursor-pointer appearance-none rounded-full"
+        className="physics-slider h-[3px] min-w-0 flex-1 cursor-pointer appearance-none rounded-full outline-none"
         style={{
-          background: `linear-gradient(to right, #d97706 ${((value - min) / (max - min)) * 100}%, rgba(74,69,64,0.3) ${((value - min) / (max - min)) * 100}%)`,
+          background: `linear-gradient(to right, #d97706 ${pct}%, rgba(74,69,64,0.3) ${pct}%)`,
         }}
       />
       <span
-        className="w-[36px] text-right font-mono text-[0.55rem] tabular-nums"
+        className="w-[28px] shrink-0 text-right font-mono text-[0.5rem] tabular-nums"
         style={{ color: "#d97706" }}
       >
         {value.toFixed(step < 1 ? 2 : 0)}
@@ -92,7 +93,7 @@ export function PhysicsTuner({ params, onChange }: PhysicsTunerProps) {
 
   return (
     <div
-      className="rounded-lg"
+      className="overflow-hidden rounded-lg"
       style={{
         background: "rgba(10, 9, 8, 0.88)",
         backdropFilter: "blur(12px)",

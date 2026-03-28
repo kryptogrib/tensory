@@ -42,6 +42,7 @@ tests/                   # One test file per module (246 tests)
 examples/
   demo.py                # Full integration demo (works without API keys)
   llm_adapters.py        # Ready-to-use: OpenAI, Anthropic (with proxy), Ollama
+benchmarks/locomo/       # LoCoMo benchmark runner + AMB integration docs
 plans/tensory-plan.md    # Original plan with references
 .env.example             # All env vars documented
 ```
@@ -123,8 +124,10 @@ Phases 1-8 complete. 246 tests, pyright strict, ruff clean, uv, GitHub Actions C
 
 ## Benchmark (LoCoMo / AMB)
 
-AMB provider at `/Users/chelovek/Work/agent-memory-benchmark/src/memory_bench/memory/tensory_provider.py`
+AMB provider: `../agent-memory-benchmark/src/memory_bench/memory/tensory_provider.py`
 Benchmark docs: `benchmarks/locomo/README.md`
 - Tensory registered as `tensory` provider in AMB (Open Memory Benchmark)
-- Exact token tracking via `TrackingEmbedder` and `_make_tracking_llm()`
+- Exact token tracking via `TrackingEmbedder` and `_make_tracking_llm()` (no estimation)
 - `anthropic` LLM provider added to AMB for proxy-based answer/judge
+- Provider includes `_structure_context()` for entity-grouped retrieval + `_mmr_rerank()` for diversity
+- Competitor results: Hindsight 92%, Cognee 80.3%, Hybrid Search 79.1% (all Gemini 3.1 Pro, LoCoMo)

@@ -33,13 +33,9 @@ export default function HomePage() {
         <EdgeLegend />
       </div>
 
-      {/* Graph controls — top right */}
-      <div className="pointer-events-auto absolute right-3 top-16 z-10 w-36">
+      {/* Graph controls + Physics tuner — top right column */}
+      <div className="pointer-events-auto absolute right-3 top-16 z-10 flex flex-col gap-2 w-56">
         <GraphControls mode={mode} onModeChange={setMode} />
-      </div>
-
-      {/* Physics tuner — below graph controls */}
-      <div className="pointer-events-auto absolute right-3 top-[7.5rem] z-10 w-56">
         <PhysicsTuner params={physics} onChange={setPhysics} />
       </div>
 
