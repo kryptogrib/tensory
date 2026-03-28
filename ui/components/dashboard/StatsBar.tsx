@@ -2,6 +2,8 @@
 
 import { useStats } from "@/hooks/use-stats";
 import { HudWindow } from "./HudWindow";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 
 function formatNumber(n: number): string {
   return n.toLocaleString("en-US");
@@ -18,6 +20,92 @@ function LoadingSkeleton() {
         />
       ))}
     </div>
+  );
+}
+
+function SearchBox() {
+  const router = useRouter();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [focused, setFocused] = useState(false);
+  const [query, setQuery] = useState("");
+
+  // ⌘K / Ctrl+K hotkey
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        inputRef.current?.focus();
+      }
+      if (e.key === "Escape") {
+        inputRef.current?.blur();
+        setQuery("");
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  const handleSubmit = useCallback(
+    (e: React.FormEvent) => {
+      e.preventDefault();
+      if (query.trim()) {
+        router.push(`/claims?search=${encodeURIComponent(query.trim())}`);
+        inputRef.current?.blur();
+      }
+    },
+    [query, router],
+  );
+
+  return (
+    <form
+      onSubmit={handleSubmit}
+      className="ml-4 flex flex-shrink-0 items-center gap-2 rounded-md px-3 py-1.5"
+      style={{
+        border: `1px solid rgba(217, 119, 6, ${focused ? 0.25 : 0.1})`,
+        background: focused ? "rgba(217, 119, 6, 0.03)" : "transparent",
+        transition: "border-color 0.2s, background 0.2s",
+        minWidth: 200,
+      }}
+    >
+      <svg
+        width="12"
+        height="12"
+        viewBox="0 0 12 12"
+        fill="none"
+        stroke={focused ? "#8a7e72" : "#4a4540"}
+        strokeWidth="1.2"
+      >
+        <circle cx="5" cy="5" r="3.5" />
+        <line x1="7.5" y1="7.5" x2="10.5" y2="10.5" />
+      </svg>
+      <input
+        ref={inputRef}
+        type="text"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        placeholder="search claims..."
+        className="flex-1 bg-transparent text-[0.7rem] outline-none"
+        style={{
+          color: "#f5e6d3",
+          fontFamily: "'SF Mono', Monaco, monospace",
+          caretColor: "#d97706",
+        }}
+      />
+      {!focused && !query && (
+        <kbd
+          className="rounded px-1.5 py-0.5 text-[0.55rem]"
+          style={{
+            background: "rgba(217, 119, 6, 0.06)",
+            color: "#4a4540",
+            border: "1px solid rgba(217, 119, 6, 0.08)",
+          }}
+        >
+          ⌘K
+        </kbd>
+      )}
+    </form>
   );
 }
 
@@ -93,22 +181,8 @@ export function StatsBar() {
           </span>
         </div>
 
-        {/* Search placeholder */}
-        <div
-          className="ml-4 flex flex-shrink-0 items-center gap-1.5 rounded px-2 py-1 text-[0.65rem]"
-          style={{
-            border: "1px solid rgba(217, 119, 6, 0.1)",
-            color: "#6b6560",
-          }}
-        >
-          <span>search</span>
-          <kbd
-            className="rounded px-1 py-0.5 text-[0.55rem]"
-            style={{ background: "rgba(217, 119, 6, 0.06)" }}
-          >
-            ⌘K
-          </kbd>
-        </div>
+        {/* Search — functional with ⌘K hotkey */}
+        <SearchBox />
       </div>
     </HudWindow>
   );

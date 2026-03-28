@@ -68,7 +68,27 @@ export function ZoomControls() {
       </span>
       <ZoomButton label="+" onClick={handleZoomIn} />
       <div style={{ borderLeft: "1px solid rgba(217, 119, 6, 0.06)" }}>
-        <ZoomButton label="&#x2B1C;" onClick={handleFitView} />
+        <button
+          onClick={handleFitView}
+          className="cursor-pointer px-2 py-1 transition-colors hover:brightness-125"
+          style={{
+            color: "#8a7e72",
+            background: "transparent",
+            border: "none",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+          title="Fit to view"
+        >
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round">
+            <rect x="3" y="3" width="8" height="8" rx="1" />
+            <path d="M1 4V2a1 1 0 0 1 1-1h2" />
+            <path d="M10 1h2a1 1 0 0 1 1 1v2" />
+            <path d="M13 10v2a1 1 0 0 1-1 1h-2" />
+            <path d="M4 13H2a1 1 0 0 1-1-1v-2" />
+          </svg>
+        </button>
       </div>
     </div>
   );
