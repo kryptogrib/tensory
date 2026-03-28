@@ -66,8 +66,8 @@ function useForceLayout(
   const [nodes, setNodes] = useState<Node[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
   const simulationRef = useRef<ReturnType<typeof forceSimulation<SimNode>> | null>(null);
-  const animFrameRef = useRef<number>(0);
   const simNodesRef = useRef<SimNode[]>([]);
+  const updateScheduledRef = useRef(false);
 
   useEffect(() => {
     if (!entities.length) {
@@ -154,8 +154,10 @@ function useForceLayout(
 
     simulationRef.current = sim;
 
-    // --- Render loop via requestAnimationFrame ---
-    function tick() {
+    // --- Sync simulation → React state (throttled) ---
+    // Use d3's on("tick") instead of rAF to avoid flooding React with updates.
+    // Batch: only schedule one React update per tick cycle.
+    function syncToReact() {
       setNodes(
         simNodes.map((sn) => ({
           id: sn.id,
@@ -164,14 +166,19 @@ function useForceLayout(
           data: sn.data,
         })),
       );
-      animFrameRef.current = requestAnimationFrame(tick);
+      updateScheduledRef.current = false;
     }
 
-    // Start the loop
-    animFrameRef.current = requestAnimationFrame(tick);
+    sim.on("tick", () => {
+      // Throttle: skip if an update is already queued
+      if (!updateScheduledRef.current) {
+        updateScheduledRef.current = true;
+        requestAnimationFrame(syncToReact);
+      }
+    });
 
     return () => {
-      cancelAnimationFrame(animFrameRef.current);
+      sim.on("tick", null);
       sim.stop();
     };
   }, [entities, edgeData]);
