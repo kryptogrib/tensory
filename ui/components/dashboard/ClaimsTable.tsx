@@ -84,14 +84,20 @@ function ExpandedRow({
       </div>
 
       {/* Episode raw text */}
-      {claim.episode_id && (
+      {detail?.episode && (
         <div>
           <span className="uppercase tracking-wider" style={{ color: "#6b6560" }}>
             episode
           </span>
-          <p className="mt-1" style={{ color: "#8a7e72" }}>
-            {claim.episode_id}
+          <p className="mt-1 whitespace-pre-wrap text-[0.65rem]" style={{ color: "#8a7e72" }}>
+            {detail.episode.raw_text.slice(0, 500)}
+            {detail.episode.raw_text.length > 500 && "..."}
           </p>
+          {detail.episode.source && (
+            <p className="mt-0.5 text-[0.6rem]" style={{ color: "#4a4540" }}>
+              source: {detail.episode.source}
+            </p>
+          )}
         </div>
       )}
 
@@ -106,9 +112,9 @@ function ExpandedRow({
           </p>
         ) : detail && detail.collisions.length > 0 ? (
           <ul className="mt-1 space-y-1">
-            {detail.collisions.map((c) => (
-              <li key={c.id} style={{ color: "#fca5a5" }}>
-                {c.type}: {c.explanation}
+            {detail.collisions.map((c, i) => (
+              <li key={i} style={{ color: "#fca5a5" }}>
+                {c.type} (score: {c.score.toFixed(2)}) — {c.shared_entities.join(", ")}
               </li>
             ))}
           </ul>
@@ -119,16 +125,36 @@ function ExpandedRow({
         )}
       </div>
 
-      {/* Supersedes chain */}
-      {detail && detail.supersedes.length > 0 && (
+      {/* Waypoints */}
+      {detail && detail.waypoints.length > 0 && (
         <div>
           <span className="uppercase tracking-wider" style={{ color: "#6b6560" }}>
-            supersedes
+            waypoints
           </span>
           <ul className="mt-1 space-y-0.5">
-            {detail.supersedes.map((s) => (
-              <li key={s.id} style={{ color: "#8a7e72" }}>
-                {s.id.slice(0, 8)}... &mdash; {s.text.slice(0, 80)}
+            {detail.waypoints.map((w) => (
+              <li key={w} style={{ color: "#8a7e72" }}>
+                {w.slice(0, 8)}...
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Related entity relations */}
+      {detail && detail.related_entities.length > 0 && (
+        <div>
+          <span className="uppercase tracking-wider" style={{ color: "#6b6560" }}>
+            relations
+          </span>
+          <ul className="mt-1 space-y-0.5">
+            {detail.related_entities.map((r, i) => (
+              <li key={i} style={{ color: "#8a7e72" }}>
+                <span style={{ color: "#d97706" }}>{r.from_entity}</span>
+                {" → "}
+                <span style={{ color: "#ea580c" }}>{r.rel_type}</span>
+                {" → "}
+                <span style={{ color: "#d97706" }}>{r.to_entity}</span>
               </li>
             ))}
           </ul>

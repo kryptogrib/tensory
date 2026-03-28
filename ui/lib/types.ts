@@ -66,18 +66,35 @@ export interface SearchResult {
 
 export interface ClaimDetail {
   claim: Claim;
+  episode: Episode | null;
   collisions: Collision[];
-  supersedes: Claim[];
-  superseded_by_claims: Claim[];
+  waypoints: string[];
+  related_entities: EntityRelation[];
+}
+
+export interface Episode {
+  id: string;
+  raw_text: string;
+  source: string;
+  source_url: string | null;
+  fetched_at: string;
+}
+
+export interface EntityRelation {
+  from_entity: string;
+  to_entity: string;
+  rel_type: string;
+  fact: string;
+  confidence: number;
+  created_at: string;
+  expired_at: string | null;
 }
 
 export interface Collision {
-  id: string;
-  claim_a_id: string;
-  claim_b_id: string;
+  claim_a: Claim;
+  claim_b: Claim;
+  score: number;
+  shared_entities: string[];
+  temporal_distance: number | null;
   type: string;
-  severity: number;
-  explanation: string;
-  resolved: boolean;
-  created_at: string;
 }
