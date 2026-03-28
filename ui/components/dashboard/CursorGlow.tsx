@@ -2,11 +2,12 @@
 
 /* ─── Cursor Glow ────────────────────────────────────────────────────
  *
- * Ambient light that follows the cursor with smooth interpolation.
- * Uses lerp (linear interpolation) for a floaty, delayed follow
- * instead of snapping directly to cursor position.
+ * Ambient light following the cursor. Uses CSS transition for
+ * buttery-smooth movement instead of JS lerp (no stepping artifacts).
  *
- * Two layers: a large soft outer glow + a smaller brighter inner.
+ * The transition property handles all interpolation — we just set
+ * the target position on pointermove and CSS does the smoothing.
+ * Two layers: large soft outer + smaller brighter inner (slower).
  * ──────────────────────────────────────────────────────────────────── */
 
 import { useRef, useEffect } from "react";
@@ -14,48 +15,17 @@ import { useRef, useEffect } from "react";
 export function CursorGlow() {
   const outerRef = useRef<HTMLDivElement>(null);
   const innerRef = useRef<HTMLDivElement>(null);
-  const mouseRef = useRef({ x: -500, y: -500 }); // start offscreen
-  const currentRef = useRef({ x: -500, y: -500 });
-  const animatingRef = useRef(false);
 
   useEffect(() => {
     function onPointerMove(e: PointerEvent) {
-      mouseRef.current = { x: e.clientX, y: e.clientY };
-
-      if (!animatingRef.current) {
-        animatingRef.current = true;
-        requestAnimationFrame(animate);
-      }
-    }
-
-    function animate() {
-      const mouse = mouseRef.current;
-      const current = currentRef.current;
-
-      // Lerp factor: 0.08 = slow/floaty follow, 0.15 = medium
-      const lerpFactor = 0.07;
-      current.x += (mouse.x - current.x) * lerpFactor;
-      current.y += (mouse.y - current.y) * lerpFactor;
-
+      // Just set the target — CSS transition handles the smoothing
       if (outerRef.current) {
-        outerRef.current.style.transform =
-          `translate(${current.x - 200}px, ${current.y - 200}px)`;
+        outerRef.current.style.left = `${e.clientX - 250}px`;
+        outerRef.current.style.top = `${e.clientY - 250}px`;
       }
       if (innerRef.current) {
-        // Inner follows slightly faster for a parallax feel
-        const innerX = current.x + (mouse.x - current.x) * 0.15;
-        const innerY = current.y + (mouse.y - current.y) * 0.15;
-        innerRef.current.style.transform =
-          `translate(${innerX - 80}px, ${innerY - 80}px)`;
-      }
-
-      // Keep animating if cursor moved recently
-      const dx = mouse.x - current.x;
-      const dy = mouse.y - current.y;
-      if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) {
-        requestAnimationFrame(animate);
-      } else {
-        animatingRef.current = false;
+        innerRef.current.style.left = `${e.clientX - 100}px`;
+        innerRef.current.style.top = `${e.clientY - 100}px`;
       }
     }
 
@@ -65,33 +35,36 @@ export function CursorGlow() {
 
   return (
     <>
-      {/* Outer soft glow — large, very subtle */}
+      {/* Outer soft glow — large, very subtle, slow follow */}
       <div
         ref={outerRef}
-        className="pointer-events-none fixed left-0 top-0"
+        className="pointer-events-none fixed"
         style={{
-          width: 400,
-          height: 400,
+          width: 500,
+          height: 500,
           borderRadius: "50%",
           background:
-            "radial-gradient(circle at center, rgba(217,119,6,0.025) 0%, rgba(217,119,6,0.01) 40%, transparent 70%)",
-          willChange: "transform",
+            "radial-gradient(circle at center, rgba(217,119,6,0.03) 0%, rgba(217,119,6,0.01) 35%, transparent 65%)",
           zIndex: 0,
-          filter: "blur(30px)",
+          transition: "left 0.8s cubic-bezier(0.25, 0.1, 0.25, 1), top 0.8s cubic-bezier(0.25, 0.1, 0.25, 1)",
+          left: -500,
+          top: -500,
         }}
       />
-      {/* Inner brighter core — smaller, slightly faster */}
+      {/* Inner brighter core — smaller, faster follow */}
       <div
         ref={innerRef}
-        className="pointer-events-none fixed left-0 top-0"
+        className="pointer-events-none fixed"
         style={{
-          width: 160,
-          height: 160,
+          width: 200,
+          height: 200,
           borderRadius: "50%",
           background:
-            "radial-gradient(circle at center, rgba(217,119,6,0.04) 0%, transparent 60%)",
-          willChange: "transform",
+            "radial-gradient(circle at center, rgba(217,119,6,0.05) 0%, rgba(217,119,6,0.02) 40%, transparent 65%)",
           zIndex: 0,
+          transition: "left 0.4s cubic-bezier(0.25, 0.1, 0.25, 1), top 0.4s cubic-bezier(0.25, 0.1, 0.25, 1)",
+          left: -500,
+          top: -500,
         }}
       />
     </>
