@@ -423,22 +423,32 @@ class TensoryService:
 
             if entity_ids:
                 placeholders = ", ".join("?" for _ in entity_ids)
+                # DISTINCT to avoid duplicates when both from/to are in entity_ids
+                # JOIN entities to resolve UUIDs → human-readable names
                 rel_cursor = await db.execute(
-                    f"""SELECT id, from_entity, to_entity, rel_type, fact,
-                               episode_id, confidence, created_at, expired_at
-                        FROM entity_relations
-                        WHERE from_entity IN ({placeholders})
-                           OR to_entity IN ({placeholders})""",
+                    f"""SELECT DISTINCT er.id, e_from.name AS from_name,
+                               e_to.name AS to_name, er.rel_type, er.fact,
+                               er.episode_id, er.confidence, er.created_at, er.expired_at
+                        FROM entity_relations er
+                        JOIN entities e_from ON er.from_entity = e_from.id
+                        JOIN entities e_to ON er.to_entity = e_to.id
+                        WHERE er.from_entity IN ({placeholders})
+                           OR er.to_entity IN ({placeholders})""",
                     [*entity_ids, *entity_ids],
                 )
                 rel_rows = await rel_cursor.fetchall()
                 rel_cols = [d[0] for d in rel_cursor.description] if rel_cursor.description else []
+                seen_rel_ids: set[str] = set()
                 for rr in rel_rows:
                     rd = dict(zip(rel_cols, rr, strict=False))
+                    rel_id = str(rd["id"])
+                    if rel_id in seen_rel_ids:
+                        continue
+                    seen_rel_ids.add(rel_id)
                     related_entities.append(
                         EntityRelation(
-                            from_entity=str(rd["from_entity"]),
-                            to_entity=str(rd["to_entity"]),
+                            from_entity=str(rd["from_name"]),
+                            to_entity=str(rd["to_name"]),
                             rel_type=str(rd["rel_type"]),
                             fact=str(rd.get("fact", "")),
                             episode_id=str(rd["episode_id"]) if rd.get("episode_id") else None,
