@@ -33,6 +33,7 @@ from tensory.models import (
     Episode,
     IngestResult,
     MemoryType,
+    ProceduralResult,
     ReflectResult,
     SearchResult,
 )
@@ -868,6 +869,78 @@ class Tensory:
 
         result.relations = relations
         return result
+
+    # ── add_procedural() — LLM skill extraction + storage ────────────────
+
+    async def add_procedural(
+        self,
+        text: str,
+        *,
+        source: str = "",
+        source_url: str | None = None,
+        context: Context | None = None,
+    ) -> ProceduralResult:
+        """Extract procedural skills from raw experience text.
+
+        Pipeline: store episode → LLM extract skills → add_claims
+        with memory_type=PROCEDURAL → collision detection.
+
+        Uses Skill-MDP framework (ProcMEM arXiv:2602.01869):
+        trigger + steps + termination_condition.
+
+        Args:
+            text: Raw experience text describing a procedure.
+            source: Source identifier.
+            source_url: Full URL of the source.
+            context: Optional research goal context.
+        """
+        if not self._llm:
+            msg = "LLM required for add_procedural(). Configure llm= on Tensory.create()."
+            raise ValueError(msg)
+
+        from tensory.extract import extract_procedural
+
+        # Store episode (Layer 0)
+        episode = Episode(
+            id=uuid.uuid4().hex,
+            raw_text=text,
+            source=source,
+            source_url=source_url,
+        )
+        await self._db.execute(
+            """INSERT INTO episodes (id, raw_text, source, source_url, fetched_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            (
+                episode.id,
+                episode.raw_text,
+                episode.source,
+                episode.source_url,
+                episode.fetched_at.isoformat(),
+            ),
+        )
+        await self._db.commit()
+
+        # Extract procedural skills via LLM
+        skills = await extract_procedural(text, self._llm)
+
+        # Set provenance on each skill
+        for skill in skills:
+            skill.source_episode_ids = [episode.id]
+
+        # Store through standard pipeline (dedup + embed + collisions)
+        stored_skills: list[Claim] = []
+        if skills:
+            result = await self.add_claims(
+                skills,
+                episode_id=episode.id,
+                context_id=context.id if context else None,
+            )
+            stored_skills = result.claims
+
+        return ProceduralResult(
+            episode_id=episode.id,
+            skills=stored_skills,
+        )
 
     # ── reevaluate() — re-extract from old episode with new context ───────
 

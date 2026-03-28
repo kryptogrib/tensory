@@ -210,3 +210,59 @@ async def test_search_filters_by_memory_type(store: Tensory) -> None:
     sem_results = await store.search("Bitcoin", memory_type=MemoryType.SEMANTIC)
     assert len(sem_results) >= 1
     assert all(r.claim.memory_type == MemoryType.SEMANTIC for r in sem_results)
+
+
+# ── Store integration tests ──────────────────────────────────────────────
+
+
+@pytest.fixture
+async def proc_store() -> Tensory:
+    """Tensory with fake LLM for procedural tests."""
+    llm = FakeProceduralLLM()
+    s = await Tensory.create(":memory:", llm=llm)
+    yield s  # type: ignore[misc]
+    await s.close()
+
+
+async def test_add_procedural_extracts_and_stores_skill(proc_store: Tensory) -> None:
+    """add_procedural() uses LLM to extract skills and stores them."""
+    from tensory.models import ProceduralResult
+
+    result = await proc_store.add_procedural(
+        "I opened Binance, entered BTC/USDT, and showed the price to the user.",
+        source="manual_demo",
+    )
+
+    assert isinstance(result, ProceduralResult)
+    assert len(result.skills) == 1
+    skill = result.skills[0]
+    assert skill.memory_type == MemoryType.PROCEDURAL
+    assert skill.trigger == "user asks for crypto price"
+    assert len(skill.steps) == 3
+    assert skill.success_rate == 0.5  # default for new skills
+
+    # Verify it's in the DB
+    stats = await proc_store.stats()
+    assert stats["counts"]["claims"] >= 1
+
+
+async def test_add_procedural_stores_episode(proc_store: Tensory) -> None:
+    """add_procedural() stores the raw episode for provenance."""
+    result = await proc_store.add_procedural("Some procedure text", source="test")
+    assert result.episode_id != ""
+
+    # Episode exists in DB
+    cursor = await proc_store._db.execute(
+        "SELECT raw_text FROM episodes WHERE id = ?", (result.episode_id,)
+    )
+    row = await cursor.fetchone()
+    assert row is not None
+    assert row[0] == "Some procedure text"
+
+
+async def test_add_procedural_requires_llm() -> None:
+    """add_procedural() raises ValueError without LLM."""
+    store = await Tensory.create(":memory:")
+    with pytest.raises(ValueError, match="LLM required"):
+        await store.add_procedural("text")
+    await store.close()
