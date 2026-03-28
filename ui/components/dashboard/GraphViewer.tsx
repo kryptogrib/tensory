@@ -27,43 +27,158 @@ import { ZoomControls } from "./ZoomControls";
 const nodeTypes = { pulse: PulseNode };
 const edgeTypes = { salience: SalienceEdge };
 
-/**
- * Lay out nodes in concentric circles, sorted by mention_count DESC.
- * Center node is the most mentioned entity.
- */
-function layoutNodes(entities: EntityNode[]): Node[] {
-  if (entities.length === 0) return [];
+/* ─── Fruchterman-Reingold Force-Directed Layout ─────────────────────
+ *
+ * Classic algorithm for aesthetically pleasing graphs.
+ *
+ * Forces:
+ *   Repulsive (all pairs):  Fr(d) = -k² / d        (Coulomb-like)
+ *   Attractive (edges):     Fa(d) =  d² / k         (spring / Hooke)
+ *   Gravity (to center):    Fg    = -strength * pos  (keeps graph centered)
+ *
+ * k = C * sqrt(area / |V|)  — ideal spring length
+ * Temperature cools each iteration to converge.
+ * ──────────────────────────────────────────────────────────────────── */
 
-  const sorted = [...entities].sort((a, b) => b.mention_count - a.mention_count);
-  const centerX = 0;
-  const centerY = 0;
+interface Vec2 {
+  x: number;
+  y: number;
+}
 
-  return sorted.map((entity, i) => {
-    let x: number;
-    let y: number;
+function forceDirectedLayout(
+  entities: EntityNode[],
+  edgeList: EdgeData[],
+): { positions: Map<string, Vec2> } {
+  const n = entities.length;
+  if (n === 0) return { positions: new Map() };
 
-    if (i === 0) {
-      x = centerX;
-      y = centerY;
-    } else {
-      // Concentric rings: ~6 per first ring, ~12 per second, etc.
-      const ring = Math.ceil(Math.sqrt(i / 3));
-      const radius = ring * 200;
-      // Count nodes in this ring for even spacing
-      const ringStart = Math.round(3 * (ring - 1) * (ring - 1));
-      const ringCapacity = Math.round(3 * (2 * ring - 1));
-      const posInRing = i - ringStart;
-      const angle = (posInRing / ringCapacity) * 2 * Math.PI - Math.PI / 2;
-      // Add slight jitter for organic feel
-      const jitter = (Math.sin(i * 7.3) * 20);
-      x = centerX + Math.cos(angle) * radius + jitter;
-      y = centerY + Math.sin(angle) * radius + jitter;
+  // Index entities by name for edge resolution
+  const idByName = new Map<string, number>();
+  entities.forEach((e, i) => idByName.set(e.name, i));
+
+  // Resolve edges to index pairs
+  const links: [number, number][] = [];
+  for (const edge of edgeList) {
+    const s = idByName.get(edge.from_entity);
+    const t = idByName.get(edge.to_entity);
+    if (s !== undefined && t !== undefined && s !== t) {
+      links.push([s, t]);
+    }
+  }
+
+  // Build adjacency set for degree calculation
+  const degree = new Array<number>(n).fill(0);
+  for (const [s, t] of links) {
+    degree[s]++;
+    degree[t]++;
+  }
+
+  // --- Parameters ---
+  const AREA = 800 * 800;
+  const k = 1.2 * Math.sqrt(AREA / Math.max(n, 1)); // ideal edge length
+  const ITERATIONS = 120;
+  const GRAVITY = 0.08;
+  const INITIAL_TEMP = k * 2;
+  const MIN_DIST = 1; // avoid division by zero
+
+  // --- Initialize positions in a circle (better starting point than random) ---
+  const pos: Vec2[] = entities.map((_, i) => {
+    const angle = (i / n) * 2 * Math.PI;
+    const r = k * 1.5;
+    return { x: Math.cos(angle) * r, y: Math.sin(angle) * r };
+  });
+
+  // --- Simulate ---
+  let temp = INITIAL_TEMP;
+
+  for (let iter = 0; iter < ITERATIONS; iter++) {
+    const disp: Vec2[] = pos.map(() => ({ x: 0, y: 0 }));
+
+    // Repulsive forces (all pairs) — O(n²), fine for <200 nodes
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        const dx = pos[i].x - pos[j].x;
+        const dy = pos[i].y - pos[j].y;
+        const dist = Math.max(Math.sqrt(dx * dx + dy * dy), MIN_DIST);
+        const force = (k * k) / dist; // Fr = k² / d
+        const fx = (dx / dist) * force;
+        const fy = (dy / dist) * force;
+        disp[i].x += fx;
+        disp[i].y += fy;
+        disp[j].x -= fx;
+        disp[j].y -= fy;
+      }
     }
 
+    // Attractive forces (edges only) — spring pulls connected nodes together
+    for (const [s, t] of links) {
+      const dx = pos[s].x - pos[t].x;
+      const dy = pos[s].y - pos[t].y;
+      const dist = Math.max(Math.sqrt(dx * dx + dy * dy), MIN_DIST);
+      const force = (dist * dist) / k; // Fa = d² / k
+      const fx = (dx / dist) * force;
+      const fy = (dy / dist) * force;
+      disp[s].x -= fx;
+      disp[s].y -= fy;
+      disp[t].x += fx;
+      disp[t].y += fy;
+    }
+
+    // Gravity — pull toward center to prevent drift
+    for (let i = 0; i < n; i++) {
+      disp[i].x -= pos[i].x * GRAVITY;
+      disp[i].y -= pos[i].y * GRAVITY;
+    }
+
+    // Apply displacement with temperature limiting
+    for (let i = 0; i < n; i++) {
+      const dx = disp[i].x;
+      const dy = disp[i].y;
+      const len = Math.max(Math.sqrt(dx * dx + dy * dy), MIN_DIST);
+      const capped = Math.min(len, temp);
+      pos[i].x += (dx / len) * capped;
+      pos[i].y += (dy / len) * capped;
+    }
+
+    // Cool down
+    temp *= 1 - iter / ITERATIONS; // linear cooling
+  }
+
+  // --- Scale positions to reasonable viewport coordinates ---
+  // Find bounding box
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const p of pos) {
+    minX = Math.min(minX, p.x);
+    maxX = Math.max(maxX, p.x);
+    minY = Math.min(minY, p.y);
+    maxY = Math.max(maxY, p.y);
+  }
+  const rangeX = maxX - minX || 1;
+  const rangeY = maxY - minY || 1;
+  const TARGET = Math.max(400, n * 60); // scale with node count
+
+  const positions = new Map<string, Vec2>();
+  entities.forEach((entity, i) => {
+    positions.set(entity.id, {
+      x: ((pos[i].x - minX) / rangeX - 0.5) * TARGET,
+      y: ((pos[i].y - minY) / rangeY - 0.5) * TARGET,
+    });
+  });
+
+  return { positions };
+}
+
+function layoutNodes(entities: EntityNode[], edges: EdgeData[]): Node[] {
+  if (entities.length === 0) return [];
+
+  const { positions } = forceDirectedLayout(entities, edges);
+
+  return entities.map((entity) => {
+    const pos = positions.get(entity.id) ?? { x: 0, y: 0 };
     return {
       id: entity.id,
       type: "pulse",
-      position: { x, y },
+      position: { x: pos.x, y: pos.y },
       data: {
         label: entity.name,
         mentionCount: entity.mention_count,
@@ -115,10 +230,10 @@ function GraphCanvas({ mode }: GraphCanvasProps) {
 
   const { data: edgesData } = useGraphEdges({});
 
-  // Compute base layout from API data
+  // Compute base layout from API data (force-directed)
   const baseNodes = useMemo(
-    () => layoutNodes(entities ?? []),
-    [entities]
+    () => layoutNodes(entities ?? [], edgesData ?? []),
+    [entities, edgesData]
   );
 
   const baseEdges = useMemo(
