@@ -13,7 +13,7 @@ tensory/service.py    →  Shared service layer (read-only queries)
                       ↓
 api/main.py (FastAPI) →  REST /api/* endpoints, OpenAPI schema
                       ↓
-ui/ (Next.js 16)      →  SPA, App Router, typed API client from OpenAPI
+ui/ (Next.js 15+)      →  SPA, App Router, typed API client from OpenAPI
                       ↑
 tensory_mcp.py        →  Also consumes service.py (migration path)
 ```
@@ -32,7 +32,7 @@ api/                              # NEW: FastAPI backend
     stats.py                      # GET /api/stats
   dependencies.py                 # get_service() dependency injection
 
-ui/                               # NEW: Next.js 16 (App Router)
+ui/                               # NEW: Next.js 15+ (App Router)
   app/
     (dashboard)/
       layout.tsx                  # Sidebar + graph canvas base
@@ -63,7 +63,14 @@ docker-compose.yml                # api + ui services
 
 ### Key Principle
 
-`tensory/` library is untouched. Only `tensory/service.py` is added — a thin read-only wrapper that both FastAPI and MCP server consume. No business logic duplication.
+`tensory/` library core is untouched. Two additions to the library layer:
+
+1. `tensory/service.py` — read-only query layer consumed by FastAPI and MCP server
+2. New read-only methods on `GraphBackend` protocol (and `SQLiteGraphBackend`) — `list_entities()`, `list_edges()`, `subgraph()`. These are pure reads, no new writes.
+
+The service layer is **not a thin wrapper** for all methods. Several queries (claim pagination, stats aggregation, entity listing) require new SQL against the existing schema. The service layer owns this query logic — it queries `store._db` directly for reads that have no existing `Tensory` method. This is intentional: keeping `store.py` focused on write orchestration while `service.py` handles read queries for the UI.
+
+MCP server migration to `service.py` is out of MVP scope. The architecture supports it for future work.
 
 ## Service Layer
 
@@ -91,7 +98,81 @@ class TensoryService:
     async def get_entity_claims(self, entity_name: str) -> list[Claim]
 ```
 
-Response models: `DashboardStats`, `PaginatedClaims`, `ClaimDetail`, `EntityNode`, `EdgeData`, `SubGraph` — new Pydantic models in service.py.
+### New Library Methods (GraphBackend)
+
+The existing `GraphBackend` protocol has no list/query methods. These must be added:
+
+```python
+# Added to GraphBackend protocol + SQLiteGraphBackend
+async def list_entities(self, *, limit: int = 100, min_mentions: int = 1) -> list[dict]
+    # SELECT id, name, type, mention_count, first_seen FROM entities
+    # WHERE mention_count >= min_mentions ORDER BY mention_count DESC LIMIT limit
+
+async def list_edges(self, *, entity_filter: str | None = None) -> list[dict]
+    # SELECT * FROM entity_relations WHERE expired_at IS NULL
+    # Optionally filter: WHERE from_entity = ? OR to_entity = ?
+
+async def subgraph(self, entity_name: str, *, depth: int = 2) -> dict
+    # 1. traverse(entity_name, depth) → list of reachable entity IDs
+    # 2. Fetch entity rows for those IDs from entities table
+    # 3. Fetch entity_relations connecting them
+    # Returns: {"nodes": [...], "edges": [...]}
+```
+
+### New Queries in Service Layer
+
+These methods build SQL directly against `store._db` (the existing schema supports all of them):
+
+- **`list_claims`**: `SELECT * FROM claims` with dynamic WHERE (type, salience range, entity via JOIN on claim_entities, context_id) + ORDER BY + LIMIT/OFFSET. Also `SELECT COUNT(*)` for total.
+- **`get_stats` → `recent_claims`**: `SELECT * FROM claims ORDER BY created_at DESC LIMIT 5`
+- **`get_stats` → `hot_entities`**: `SELECT name, mention_count FROM entities ORDER BY mention_count DESC LIMIT 5`
+- **`get_claim` → ClaimDetail**: JOIN claims + episodes + query collisions + waypoints for this claim_id
+
+### Response Models
+
+```python
+class DashboardStats(BaseModel):
+    counts: dict[str, int]          # episodes, contexts, claims, entities, relations
+    claims_by_type: dict[str, int]  # fact: 687, opinion: 156, ...
+    avg_salience: float
+    recent_claims: list[Claim]      # 5 most recent by created_at
+    hot_entities: list[EntityNode]  # 5 by mention_count DESC
+
+class PaginatedClaims(BaseModel):
+    items: list[Claim]
+    total: int
+    offset: int
+    limit: int
+
+class ClaimDetail(BaseModel):
+    claim: Claim
+    episode: Episode | None         # raw_text source
+    collisions: list[Collision]     # detected conflicts for this claim
+    waypoints: list[str]            # IDs of linked claims (cosine >= 0.75)
+    related_entities: list[EntityRelation]
+
+class EntityNode(BaseModel):
+    id: str
+    name: str
+    type: str | None
+    mention_count: int
+    first_seen: datetime
+
+class EdgeData(BaseModel):
+    from_entity: str
+    to_entity: str
+    rel_type: str
+    fact: str
+    confidence: float
+    created_at: datetime
+    expired_at: datetime | None
+
+class SubGraph(BaseModel):
+    nodes: list[EntityNode]
+    edges: list[EdgeData]
+```
+
+Note: `Claim.embedding` field is excluded from all API responses via Pydantic `model_config` or a response-specific schema to avoid sending 512-dim float vectors to the frontend.
 
 ## API Endpoints
 
@@ -107,7 +188,7 @@ GET /api/graph/entity/{name}/claims    → list[Claim]
 ```
 
 Technical decisions:
-- CORS: allow `localhost:3000` + configurable
+- CORS: allow `localhost:3000` + `CORS_ORIGINS` env var (important for Docker inter-container networking)
 - Lifespan: `Tensory.create()` on startup, `store.close()` on shutdown
 - DB path: `TENSORY_DB_PATH` env var (default: `data/tensory.db`)
 - Single `TensoryService` instance via FastAPI `Depends()`
@@ -145,11 +226,14 @@ Deep dark background with warm amber/orange accents. Monospace typography. Termi
 
 Monospace throughout: `'SF Mono', Monaco, 'Cascadia Code', 'Fira Code', monospace`
 
-- Stats values: 9px, font-weight 700
-- Labels: 8-9px, uppercase, letter-spacing 1.2px
-- Node names: 8-11px (scaled by importance), font-weight 600-700
-- Node meta: 6-7px
-- HUD headers: 8px, uppercase, letter-spacing 1.2px
+Font sizes use `rem` for accessibility. Mockup px values were for wireframing; actual implementation uses:
+
+- Stats values: 0.8rem (~13px), font-weight 700
+- Labels: 0.7rem (~11px), uppercase, letter-spacing 0.08em
+- Node names: 0.65-0.85rem (scaled by importance), font-weight 600-700
+- Node meta: 0.6rem (~10px)
+- HUD headers: 0.7rem (~11px), uppercase, letter-spacing 0.08em
+- Minimum readable size: 0.6rem (~10px)
 
 ### Layout: Graph Canvas + Corners HUD
 
@@ -273,7 +357,7 @@ Same Graph Canvas layout as default view. Stats bar shows aggregate metrics. Liv
 Home-specific additions:
 - Stats bar is always visible
 - Live feed auto-updates (TanStack Query refetch interval: 30s)
-- Hot entities pulled from priming data
+- Hot entities: top 5 by `mention_count` from entities table
 
 ## Screen: Claims Browser
 
@@ -287,7 +371,7 @@ Replaces graph canvas with a full TanStack Table. Same sidebar + stats bar.
 | Type | ClaimType badge | Color-coded: fact=amber, opinion=deep-amber, observation=orange, experience=lime |
 | Entities | Entity pills | Clickable → filter |
 | Salience | Bar + number | Gradient bar (deep→bright amber) |
-| Relevance | Number | 0.0-1.0 |
+| Relevance | Number | 0.0-1.0, only shown when context filter is active |
 | Source | Source string | |
 | Created | Relative time | date-fns `formatDistanceToNow` |
 
@@ -308,7 +392,7 @@ Replaces graph canvas with a full TanStack Table. Same sidebar + stats bar.
 ## Tech Stack
 
 ### Frontend (ui/)
-- Next.js 16 (App Router, TypeScript)
+- Next.js 15+ (App Router, TypeScript)
 - Tailwind CSS v4
 - shadcn/ui (Table, Card, Badge, Button, Dialog, Separator)
 - TanStack Table v8 (claims table)
@@ -333,6 +417,15 @@ Replaces graph canvas with a full TanStack Table. Same sidebar + stats bar.
 1. **Dev**: Terminal 1: `uv run uvicorn api.main:app --reload` / Terminal 2: `cd ui && npm run dev`
 2. **Docker**: `docker compose up`
 3. **Future**: `tensory serve` CLI command (Typer)
+
+## UI States
+
+Each screen handles four states:
+
+- **Loading**: Skeleton placeholders matching the component shape. HUD windows show pulsing amber bars. Graph canvas shows animated dot grid only.
+- **Empty**: "No data yet" message with monospace styling. Graph shows a single dim node labeled "No entities". Claims table shows empty state with link to docs.
+- **Error**: Inline error banner in HUD windows: "API unreachable" or specific error. Feed/entities windows collapse to header with error indicator. Graph falls back to cached data if available (TanStack Query stale-while-revalidate).
+- **Data**: Normal rendering as described above.
 
 ## Not in MVP
 
