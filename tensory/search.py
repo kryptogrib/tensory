@@ -5,7 +5,11 @@ Three search channels run in parallel (inspired by Hindsight TEMPR):
 2. **sqlite-vec** — vector cosine similarity
 3. **Graph** — entity co-occurrence traversal
 
-Results are merged via weighted RRF (Reciprocal Rank Fusion).
+Results are merged via weighted RRF (Reciprocal Rank Fusion), then
+diversified via MMR (Maximal Marginal Relevance) reranking to prevent
+entity crowding. Falls back to entity-cap filtering when embeddings
+are unavailable.
+
 Optional Fisher-Rao reranking (inspired by SuperLocalMemory V3, arXiv:2603.14588)
 re-scores top candidates using information-geometric similarity when cosine
 scores are too close to discriminate.
@@ -17,6 +21,8 @@ References:
 - Hybrid search with sqlite-vec + FTS5: alexgarcia.xyz/blog/2024/sqlite-vec-hybrid-search/
 - Parallel TEMPR retrieval: github.com/vectorize-io/hindsight
 - Fisher-Rao metric: SuperLocalMemory V3 (arXiv:2603.14588)
+- MMR: Carbonell & Goldstein, 1998 (SIGIR)
+- MMR in Graphiti/Zep: graphiti_core/search/search_utils.py
 """
 
 from __future__ import annotations
@@ -107,10 +113,16 @@ async def hybrid_search(
         if isinstance(res, BaseException):
             logger.warning("Search channel %s failed: %s", name, res)
 
-    return _rrf_merge(
+    # Over-fetch 3x for MMR/diversity filtering headroom
+    merged = _rrf_merge(
         [fts_r, vec_r, graph_r],
         weights=[w.get("fts", 0.3), w.get("vector", 0.4), w.get("graph", 0.3)],
-        limit=limit,
+        limit=limit * 3,
+    )
+
+    # MMR reranking for diversity (falls back to entity cap if no embeddings)
+    return await _mmr_rerank(
+        merged, query_embedding=embedding, db=db, limit=limit,
     )
 
 
@@ -365,6 +377,186 @@ def _rrf_merge(
         )
 
     return merged
+
+
+# ── MMR reranking ────────────────────────────────────────────────────────
+
+
+def _cosine_sim(a: list[float], b: list[float]) -> float:
+    """Cosine similarity between two vectors (pure Python, no numpy).
+
+    OpenAI embeddings are pre-normalized so dot product ≈ cosine.
+    We add norm division for safety with non-normalized vectors.
+    """
+    dot = sum(ai * bi for ai, bi in zip(a, b))
+    norm_a = math.sqrt(sum(ai * ai for ai in a))
+    norm_b = math.sqrt(sum(bi * bi for bi in b))
+    if norm_a < 1e-10 or norm_b < 1e-10:
+        return 0.0
+    return dot / (norm_a * norm_b)
+
+
+async def _load_candidate_embeddings(
+    claim_ids: list[str],
+    db: aiosqlite.Connection,
+) -> dict[str, list[float]]:
+    """Batch-load embeddings for candidate claims from sqlite-vec.
+
+    Returns dict mapping claim_id → embedding vector.
+    Claims without stored embeddings are omitted.
+    """
+    if not claim_ids:
+        return {}
+
+    result: dict[str, list[float]] = {}
+    for cid in claim_ids:
+        try:
+            cursor = await db.execute(
+                "SELECT embedding FROM claim_embeddings WHERE claim_id = ?",
+                (cid,),
+            )
+            row = await cursor.fetchone()
+            if row and row[0] is not None:
+                raw = row[0]
+                if isinstance(raw, bytes):
+                    # sqlite-vec stores as binary float32
+                    n = len(raw) // 4
+                    result[cid] = list(struct.unpack(f"<{n}f", raw))
+                elif isinstance(raw, str):
+                    result[cid] = json.loads(raw)
+        except Exception:
+            continue  # graceful degradation
+
+    return result
+
+
+async def _mmr_rerank(
+    results: list[SearchResult],
+    *,
+    query_embedding: list[float] | None,
+    db: aiosqlite.Connection,
+    limit: int = 10,
+    mmr_lambda: float = 0.7,
+) -> list[SearchResult]:
+    """Maximal Marginal Relevance reranking (Carbonell & Goldstein, 1998).
+
+    Balances relevance to query with diversity among selected results.
+    Falls back to entity-cap filter when embeddings are unavailable.
+
+    Formula: MMR(d) = λ·sim(d, query) - (1-λ)·max(sim(d, selected))
+
+    Args:
+        results: Ranked candidates from RRF merge (over-fetched).
+        query_embedding: Query vector (None → fallback to entity cap).
+        db: Database connection for loading claim embeddings.
+        limit: Final number of results to return.
+        mmr_lambda: Balance parameter. 1.0=pure relevance, 0.0=pure diversity.
+    """
+    if len(results) <= limit:
+        return results
+
+    # No query embedding → fall back to entity-cap diversity
+    if not query_embedding:
+        return await _entity_diverse_filter(results, db, limit=limit)
+
+    # Load embeddings for all candidates
+    candidate_ids = [r.claim.id for r in results]
+    embeddings = await _load_candidate_embeddings(candidate_ids, db)
+
+    # Not enough embeddings → fall back to entity cap
+    if len(embeddings) < 2:
+        return await _entity_diverse_filter(results, db, limit=limit)
+
+    # Separate candidates with/without embeddings
+    with_emb: list[tuple[SearchResult, list[float]]] = []
+    without_emb: list[SearchResult] = []
+    for r in results:
+        emb = embeddings.get(r.claim.id)
+        if emb is not None:
+            with_emb.append((r, emb))
+        else:
+            without_emb.append(r)
+
+    # Greedy MMR selection
+    selected: list[SearchResult] = []
+    selected_embs: list[list[float]] = []
+    remaining = list(with_emb)
+
+    while len(selected) < limit and remaining:
+        best_score = -float("inf")
+        best_idx = -1
+
+        for i, (result, emb) in enumerate(remaining):
+            # Relevance: cosine similarity to query
+            relevance = _cosine_sim(query_embedding, emb)
+
+            # Redundancy: max similarity to any already-selected
+            redundancy = 0.0
+            if selected_embs:
+                redundancy = max(
+                    _cosine_sim(emb, s_emb) for s_emb in selected_embs
+                )
+
+            # MMR score
+            score = mmr_lambda * relevance - (1 - mmr_lambda) * redundancy
+
+            if score > best_score:
+                best_score = score
+                best_idx = i
+
+        if best_idx < 0:
+            break
+
+        chosen_result, chosen_emb = remaining.pop(best_idx)
+        selected.append(chosen_result)
+        selected_embs.append(chosen_emb)
+
+    # Fill remaining slots with non-embedded candidates (if any)
+    if len(selected) < limit and without_emb:
+        selected.extend(without_emb[: limit - len(selected)])
+
+    return selected
+
+
+async def _entity_diverse_filter(
+    results: list[SearchResult],
+    db: aiosqlite.Connection,
+    *,
+    limit: int = 10,
+    max_per_entity: int = 3,
+) -> list[SearchResult]:
+    """Fallback: entity-cap diversity filter (Google-style).
+
+    Used when embeddings are unavailable for MMR reranking.
+    Limits claims per entity to prevent entity crowding.
+    """
+    if len(results) <= limit:
+        return results
+
+    claim_entities: dict[str, list[str]] = {}
+    for r in results:
+        entities = await load_claim_entities(r.claim.id, db)
+        claim_entities[r.claim.id] = [e.lower() for e in entities]
+
+    entity_counts: dict[str, int] = {}
+    diverse: list[SearchResult] = []
+
+    for r in results:
+        if len(diverse) >= limit:
+            break
+
+        entities = claim_entities.get(r.claim.id, [])
+
+        if entities and all(
+            entity_counts.get(e, 0) >= max_per_entity for e in entities
+        ):
+            continue
+
+        diverse.append(r)
+        for e in entities:
+            entity_counts[e] = entity_counts.get(e, 0) + 1
+
+    return diverse
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────

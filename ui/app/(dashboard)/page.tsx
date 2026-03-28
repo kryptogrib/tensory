@@ -7,14 +7,20 @@ import { EntityBadges } from "@/components/dashboard/EntityBadges";
 import { GraphViewer } from "@/components/dashboard/GraphViewer";
 import { GraphControls } from "@/components/dashboard/GraphControls";
 import { EdgeLegend } from "@/components/dashboard/EdgeLegend";
+import {
+  PhysicsTuner,
+  DEFAULT_PHYSICS,
+  type PhysicsParams,
+} from "@/components/dashboard/PhysicsTuner";
 
 export default function HomePage() {
   const [mode, setMode] = useState<"entity" | "full">("entity");
+  const [physics, setPhysics] = useState<PhysicsParams>(DEFAULT_PHYSICS);
 
   return (
     <div className="relative h-full w-full" style={{ background: "#0a0908" }}>
       {/* Graph canvas — full screen background */}
-      <GraphViewer mode={mode} />
+      <GraphViewer mode={mode} physics={physics} />
 
       {/* HUD overlay */}
       {/* Stats bar — top */}
@@ -30,6 +36,11 @@ export default function HomePage() {
       {/* Graph controls — top right */}
       <div className="pointer-events-auto absolute right-3 top-16 z-10 w-36">
         <GraphControls mode={mode} onModeChange={setMode} />
+      </div>
+
+      {/* Physics tuner — below graph controls */}
+      <div className="pointer-events-auto absolute right-3 top-[7.5rem] z-10 w-56">
+        <PhysicsTuner params={physics} onChange={setPhysics} />
       </div>
 
       {/* Entity badges — bottom left */}

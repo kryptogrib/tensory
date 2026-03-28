@@ -2,12 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, List, Share2, Settings } from "lucide-react";
+import { LayoutDashboard, List, Settings } from "lucide-react";
+import { AmbientPlayer } from "./AmbientPlayer";
 
 const NAV_ITEMS = [
   { href: "/", icon: LayoutDashboard, label: "Home" },
   { href: "/claims", icon: List, label: "Claims" },
-  { href: "/graph", icon: Share2, label: "Graph" },
 ] as const;
 
 export function Sidebar() {
@@ -67,14 +67,17 @@ export function Sidebar() {
         </nav>
       </div>
 
-      {/* Bottom: settings */}
-      <Link
-        href="/settings"
-        aria-label="Settings"
-        className="flex h-7 w-7 items-center justify-center rounded transition-colors hover:brightness-125"
-      >
-        <Settings size={14} style={{ color: "#4a4540" }} />
-      </Link>
+      {/* Bottom: ambient music + settings */}
+      <div className="flex flex-col items-center gap-2">
+        <AmbientPlayer />
+        <Link
+          href="/settings"
+          aria-label="Settings"
+          className="flex h-7 w-7 items-center justify-center rounded transition-colors hover:brightness-125"
+        >
+          <Settings size={14} style={{ color: "#4a4540" }} />
+        </Link>
+      </div>
     </aside>
   );
 }

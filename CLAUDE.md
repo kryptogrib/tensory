@@ -13,7 +13,7 @@ Tooling: pyright (strict), ruff (lint + format), pytest-asyncio
 
 ```bash
 uv sync --all-extras                    # Install all deps
-uv run pytest tests/                    # Run all 233 tests
+uv run pytest tests/                    # Run all 246 tests
 uv run pytest tests/test_store.py::test_name   # Single test
 uv run pyright tensory/                 # Type check (strict mode)
 uv run ruff check tensory/ tests/       # Lint
@@ -28,7 +28,7 @@ tensory/                 # Library source (13 modules)
   store.py               # Tensory orchestrator — 10 public methods
   models.py              # Pydantic: Episode, Context, Claim, MemoryType, ProceduralResult, ...
   schema.py              # SQLite schema v2 (4 layers + procedural, WAL, FTS5, sqlite-vec cosine)
-  search.py              # Hybrid search (FTS5 + vector + graph → RRF merge) + memory_type filter
+  search.py              # Hybrid search (FTS5 + vector + graph → RRF → MMR diversity) + memory_type filter
   collisions.py          # Two-level collision detection (structural + semantic)
   dedup.py               # MinHash/LSH (Apache 2.0 from Graphiti — keep attribution!)
   embedder.py            # Embedder Protocol + OpenAIEmbedder + NullEmbedder
@@ -38,7 +38,7 @@ tensory/                 # Library source (13 modules)
   graph.py               # GraphBackend Protocol + SQLiteGraphBackend (recursive CTEs)
   prompts.py             # All LLM prompts: extraction, CARA, procedural, segmentation
   __init__.py            # Public API exports
-tests/                   # One test file per module (233 tests)
+tests/                   # One test file per module (246 tests)
 examples/
   demo.py                # Full integration demo (works without API keys)
   llm_adapters.py        # Ready-to-use: OpenAI, Anthropic (with proxy), Ollama
@@ -78,6 +78,8 @@ See `.env.example`. Key vars:
 - `chunk_threshold` is per-call on `add()`, not constructor — user controls per text. Default: 3000 tokens
 - `estimate_tokens()` uses word count as proxy (~±15%) — no tokenizer dependency
 - Topic segmentation returns full text in sections (verbatim copy), not summaries. Lost text = lost claims
+- MMR reranking uses stored claim embeddings for diversity. Falls back to entity-cap filter if embeddings unavailable (NullEmbedder)
+- `_mmr_rerank()` λ=0.7 default: higher = more relevance, lower = more diversity. Entity-cap fallback uses max_per_entity=3
 
 ## Procedural Memory (Phase 6)
 
@@ -105,11 +107,24 @@ Long texts are automatically segmented via topic segmentation:
 - Fallback: if LLM segmentation fails → paragraph splitting (no LLM)
 - Entity names deduplicated across sections via lowercase normalization
 
+## Documentation
+
+Rules for writing/maintaining docs: `docs/documentation-guide.md`
+
 ## Current Status
 
-Phases 1-7 complete. 233 tests, pyright strict, ruff clean, uv, GitHub Actions CI.
+Phases 1-8 complete. 246 tests, pyright strict, ruff clean, uv, GitHub Actions CI.
 - Phase 5+ Neo4jBackend ✅
 - Phase 5++ CARA reflect() ✅
 - Phase 5+++ MCP server ✅
 - Phase 6: Procedural Memory ✅ (Skill-MDP, feedback loop, search_procedural)
 - Phase 7: Hybrid Extraction ✅ (topic segmentation, parallel extraction, entity dedup)
+- Phase 8: Search Diversity ✅ (MMR reranking, entity-cap fallback, search quality tests)
+
+## Benchmark (LoCoMo / AMB)
+
+AMB provider at `/Users/chelovek/Work/agent-memory-benchmark/src/memory_bench/memory/tensory_provider.py`
+Benchmark docs: `benchmarks/locomo/README.md`
+- Tensory registered as `tensory` provider in AMB (Open Memory Benchmark)
+- Exact token tracking via `TrackingEmbedder` and `_make_tracking_llm()`
+- `anthropic` LLM provider added to AMB for proxy-based answer/judge

@@ -283,23 +283,30 @@ class SQLiteGraphBackend:
         *,
         entity_filter: str | None = None,
     ) -> list[dict[str, object]]:
-        """List active (non-expired) edges, optionally filtered by entity ID."""
+        """List active (non-expired) edges, optionally filtered by entity name.
+
+        Returns entity **names** (not IDs) in from_entity / to_entity
+        so consumers (dashboard UI) can match edges to nodes directly.
+        """
+        base_sql = """
+            SELECT er.id,
+                   e_from.name AS from_entity,
+                   e_to.name   AS to_entity,
+                   er.rel_type, er.fact, er.episode_id,
+                   er.confidence, er.created_at, er.expired_at
+            FROM entity_relations er
+            JOIN entities e_from ON er.from_entity = e_from.id
+            JOIN entities e_to   ON er.to_entity   = e_to.id
+            WHERE er.expired_at IS NULL"""
+
         if entity_filter:
             cursor = await self._db.execute(
-                """SELECT id, from_entity, to_entity, rel_type, fact,
-                          episode_id, confidence, created_at, expired_at
-                   FROM entity_relations
-                   WHERE expired_at IS NULL
-                     AND (from_entity = ? OR to_entity = ?)""",
+                base_sql + " AND (e_from.name = ? OR e_to.name = ?)",
                 (entity_filter, entity_filter),
             )
         else:
-            cursor = await self._db.execute(
-                """SELECT id, from_entity, to_entity, rel_type, fact,
-                          episode_id, confidence, created_at, expired_at
-                   FROM entity_relations
-                   WHERE expired_at IS NULL""",
-            )
+            cursor = await self._db.execute(base_sql)
+
         rows = await cursor.fetchall()
         cols = (
             "id",
@@ -348,13 +355,19 @@ class SQLiteGraphBackend:
         nodes: list[dict[str, object]] = [dict(zip(node_cols, r, strict=False)) for r in node_rows]
 
         # Fetch edges between reachable entities (active only)
+        # JOIN with entities to return names instead of IDs
         cursor = await self._db.execute(
-            f"""SELECT id, from_entity, to_entity, rel_type, fact,
-                       episode_id, confidence, created_at, expired_at
-                FROM entity_relations
-                WHERE expired_at IS NULL
-                  AND from_entity IN ({placeholders})
-                  AND to_entity IN ({placeholders})""",
+            f"""SELECT er.id,
+                       e_from.name AS from_entity,
+                       e_to.name   AS to_entity,
+                       er.rel_type, er.fact, er.episode_id,
+                       er.confidence, er.created_at, er.expired_at
+                FROM entity_relations er
+                JOIN entities e_from ON er.from_entity = e_from.id
+                JOIN entities e_to   ON er.to_entity   = e_to.id
+                WHERE er.expired_at IS NULL
+                  AND er.from_entity IN ({placeholders})
+                  AND er.to_entity IN ({placeholders})""",
             [*reachable_ids, *reachable_ids],
         )
         edge_rows = await cursor.fetchall()

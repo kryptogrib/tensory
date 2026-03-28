@@ -201,3 +201,49 @@
 .react-flow__edge.selected .react-flow__edge-interaction {
   stroke: transparent !important;
 }
+
+/* Ambient player — vertical volume slider thumb */
+.ambient-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #d97706;
+  box-shadow: 0 0 6px rgba(217, 119, 6, 0.5);
+  cursor: pointer;
+  border: none;
+}
+
+.ambient-slider::-moz-range-thumb {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #d97706;
+  box-shadow: 0 0 6px rgba(217, 119, 6, 0.5);
+  cursor: pointer;
+  border: none;
+}
+
+/* Physics tuner — horizontal slider thumb */
+.physics-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #d97706;
+  box-shadow: 0 0 4px rgba(217, 119, 6, 0.4);
+  cursor: pointer;
+  border: none;
+}
+
+.physics-slider::-moz-range-thumb {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #d97706;
+  box-shadow: 0 0 4px rgba(217, 119, 6, 0.4);
+  cursor: pointer;
+  border: none;
+}

@@ -9,8 +9,36 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Tensory Dashboard",
-  description: "Context-aware memory for AI agents — Ember Terminal",
+  title: {
+    default: "Tensory — Context-Aware Memory for AI Agents",
+    template: "%s | Tensory",
+  },
+  description:
+    "Episodic, semantic & procedural memory with built-in collision detection. One-file cognitive stack for any AI agent.",
+  metadataBase: new URL("https://tensory.dev"),
+  openGraph: {
+    title: "Tensory — Context-Aware Memory for AI Agents",
+    description:
+      "Full cognitive stack: episodic + semantic + procedural memory, graph relations, hybrid search with MMR diversity.",
+    siteName: "Tensory",
+    type: "website",
+  },
+  twitter: {
+    card: "summary",
+    title: "Tensory — Context-Aware Memory for AI Agents",
+    description:
+      "Full cognitive stack: episodic + semantic + procedural memory, graph relations, hybrid search with MMR diversity.",
+  },
+  keywords: [
+    "AI memory",
+    "agent memory",
+    "episodic memory",
+    "semantic memory",
+    "procedural memory",
+    "knowledge graph",
+    "RAG",
+    "cognitive architecture",
+  ],
 };
 
 export default function RootLayout({

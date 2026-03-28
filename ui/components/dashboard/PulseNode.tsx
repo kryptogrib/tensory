@@ -98,22 +98,18 @@ function PulseNodeComponent({ data, selected }: NodeProps) {
         }}
       />
 
-      {/* Visual container — centered in the box */}
+      {/* Sphere visuals — all absolute-centered so edges hit the true center */}
       <div
         className="absolute transition-transform duration-200 ease-out group-hover:scale-[1.15]"
         style={{
-          top: "50%",
-          left: "50%",
-          transform: "translate(-50%, -50%)",
+          top: 0,
+          left: 0,
           width: boxSize,
           height: boxSize,
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
+          pointerEvents: "none",
         }}
       >
-        {/* Glow halo — every node gets one, brighter for high-mention */}
+        {/* Glow halo */}
         <div
           style={{
             position: "absolute",
@@ -129,93 +125,98 @@ function PulseNodeComponent({ data, selected }: NodeProps) {
         />
 
         {/* Pulse rings */}
-        <div style={{ position: "relative", width: boxSize * 0.7, height: boxSize * 0.7 }}>
-          {Array.from({ length: ringCount }).map((_, i) => (
-            <div
-              key={i}
-              style={{
-                position: "absolute",
-                top: "50%",
-                left: "50%",
-                transform: "translate(-50%, -50%)",
-                width: boundarySize + 8,
-                height: boundarySize + 8,
-                borderRadius: "50%",
-                border: `1px solid rgba(217, 119, 6, ${0.25 + salience * 0.2})`,
-                animation: `pulse-ring ${2.5 + i * 0.5}s ease-out infinite`,
-                animationDelay: `${i * 0.8}s`,
-                pointerEvents: "none",
-              }}
-            />
-          ))}
-
-          {/* Boundary circle — breathing */}
+        {Array.from({ length: ringCount }).map((_, i) => (
           <div
+            key={i}
             style={{
               position: "absolute",
               top: "50%",
               left: "50%",
               transform: "translate(-50%, -50%)",
-              width: boundarySize,
-              height: boundarySize,
+              width: boundarySize + 8,
+              height: boundarySize + 8,
               borderRadius: "50%",
-              border: `1px solid rgba(217, 119, 6, ${selected ? 0.5 : 0.2})`,
-              animation: "breathe 4s ease-in-out infinite",
-              background: selected
-                ? "rgba(217, 119, 6, 0.1)"
-                : `rgba(217, 119, 6, ${0.03 + salience * 0.04})`,
+              border: `1px solid rgba(217, 119, 6, ${0.25 + salience * 0.2})`,
+              animation: `pulse-ring ${2.5 + i * 0.5}s ease-out infinite`,
+              animationDelay: `${i * 0.8}s`,
+              pointerEvents: "none",
             }}
           />
+        ))}
 
-          {/* Core dot */}
-          <div
-            style={{
-              position: "absolute",
-              top: "50%",
-              left: "50%",
-              transform: "translate(-50%, -50%)",
-              width: coreSize,
-              height: coreSize,
-              borderRadius: "50%",
-              background: `rgba(217, 119, 6, ${Math.min(salience + 0.2, 1)})`,
-              boxShadow: `0 0 ${10 + salience * 16}px rgba(217, 119, 6, ${salience * 0.7}), 0 0 ${25 + salience * 30}px rgba(217, 119, 6, ${salience * 0.25}), 0 0 ${40 + salience * 40}px rgba(217, 119, 6, ${salience * 0.08})`,
-              animation: "glow-pulse 3s ease-in-out infinite",
-            }}
-          />
-        </div>
-
-        {/* Label */}
-        <span
-          className="text-center leading-tight"
+        {/* Boundary circle — breathing */}
+        <div
           style={{
-            fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Fira Code', monospace",
-            fontSize: labelSize,
-            fontWeight: mentionCount >= 8 ? 600 : 400,
-            color: selected ? "#f5e6d3" : mentionCount >= 5 ? "#e8c89a" : "#a89880",
-            maxWidth: boxSize + 30,
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-            marginTop: 2,
+            position: "absolute",
+            top: "50%",
+            left: "50%",
+            transform: "translate(-50%, -50%)",
+            width: boundarySize,
+            height: boundarySize,
+            borderRadius: "50%",
+            border: `1px solid rgba(217, 119, 6, ${selected ? 0.5 : 0.2})`,
+            animation: "breathe 4s ease-in-out infinite",
+            background: selected
+              ? "rgba(217, 119, 6, 0.1)"
+              : `rgba(217, 119, 6, ${0.03 + salience * 0.04})`,
+          }}
+        />
+
+        {/* Core dot */}
+        <div
+          style={{
+            position: "absolute",
+            top: "50%",
+            left: "50%",
+            transform: "translate(-50%, -50%)",
+            width: coreSize,
+            height: coreSize,
+            borderRadius: "50%",
+            background: `rgba(217, 119, 6, ${Math.min(salience + 0.2, 1)})`,
+            boxShadow: `0 0 ${10 + salience * 16}px rgba(217, 119, 6, ${salience * 0.7}), 0 0 ${25 + salience * 30}px rgba(217, 119, 6, ${salience * 0.25}), 0 0 ${40 + salience * 40}px rgba(217, 119, 6, ${salience * 0.08})`,
+            animation: "glow-pulse 3s ease-in-out infinite",
+          }}
+        />
+      </div>
+
+      {/* Label — absolute below center, outside sphere layout */}
+      <span
+        className="absolute left-1/2 text-center leading-tight"
+        style={{
+          top: "50%",
+          transform: `translateX(-50%)`,
+          marginTop: boundarySize / 2 + 6,
+          fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Fira Code', monospace",
+          fontSize: labelSize,
+          fontWeight: mentionCount >= 8 ? 600 : 400,
+          color: selected ? "#f5e6d3" : mentionCount >= 5 ? "#e8c89a" : "#a89880",
+          maxWidth: boxSize + 30,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+          pointerEvents: "none",
+        }}
+      >
+        {label}
+      </span>
+
+      {/* Claim count — below label */}
+      {claimCount != null && claimCount > 0 && (
+        <span
+          className="absolute left-1/2"
+          style={{
+            top: "50%",
+            transform: "translateX(-50%)",
+            marginTop: boundarySize / 2 + 6 + labelSize + 2,
+            fontFamily: "'SF Mono', Monaco, monospace",
+            fontSize: 8,
+            color: "#4a4540",
+            pointerEvents: "none",
           }}
         >
-          {label}
+          {claimCount} claims
         </span>
-
-        {/* Claim count */}
-        {claimCount != null && claimCount > 0 && (
-          <span
-            style={{
-              fontFamily: "'SF Mono', Monaco, monospace",
-              fontSize: 8,
-              color: "#4a4540",
-              marginTop: 1,
-            }}
-          >
-            {claimCount} claims
-          </span>
-        )}
-      </div>
+      )}
     </div>
   );
 }

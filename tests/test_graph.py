@@ -124,8 +124,8 @@ async def test_list_edges(store: Tensory) -> None:
     edges = await store._graph.list_edges()
     assert len(edges) == 1
     edge = edges[0]
-    assert edge["from_entity"] == eid_a
-    assert edge["to_entity"] == eid_b
+    assert edge["from_entity"] == "Foo"
+    assert edge["to_entity"] == "Bar"
     assert edge["rel_type"] == "WORKS_WITH"
     assert edge["fact"] == "Foo works with Bar"
     assert edge["confidence"] == 0.95
@@ -145,7 +145,7 @@ async def test_list_edges(store: Tensory) -> None:
 
 
 async def test_list_edges_entity_filter(store: Tensory) -> None:
-    """list_edges filters by entity ID."""
+    """list_edges filters by entity name."""
     eid_a = await store._graph.add_entity("Node1", "org")
     eid_b = await store._graph.add_entity("Node2", "org")
     eid_c = await store._graph.add_entity("Node3", "org")
@@ -153,11 +153,11 @@ async def test_list_edges_entity_filter(store: Tensory) -> None:
     await store._graph.add_edge(eid_b, eid_c, "LINKED")
     await store._db.commit()
 
-    # Filter to edges involving Node1 only
-    edges = await store._graph.list_edges(entity_filter=eid_a)
+    # Filter to edges involving Node1 only (by name, not ID)
+    edges = await store._graph.list_edges(entity_filter="Node1")
     assert len(edges) == 1
-    assert edges[0]["from_entity"] == eid_a
-    assert edges[0]["to_entity"] == eid_b
+    assert edges[0]["from_entity"] == "Node1"
+    assert edges[0]["to_entity"] == "Node2"
 
 
 async def test_subgraph(store: Tensory) -> None:
