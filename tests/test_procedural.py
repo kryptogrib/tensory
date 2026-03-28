@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from tensory import Claim
+import pytest
+
+from tensory import Claim, Tensory
 from tensory.models import MemoryType, ProceduralResult
 
 # ── Model tests ──────────────────────────────────────────────────────────
@@ -48,3 +50,43 @@ def test_procedural_result_model() -> None:
     assert r.skills == []
     assert r.updated_skills == []
     assert r.deprecated_skills == []
+
+
+# ── Schema tests ─────────────────────────────────────────────────────────
+
+
+async def test_schema_has_procedural_columns(store: Tensory) -> None:
+    """Claims table has procedural columns after schema creation."""
+    cursor = await store._db.execute("PRAGMA table_info(claims)")
+    rows = await cursor.fetchall()
+    columns = {row[1] for row in rows}
+
+    assert "memory_type" in columns
+    assert "trigger" in columns
+    assert "steps" in columns
+    assert "termination_condition" in columns
+    assert "success_rate" in columns
+    assert "usage_count" in columns
+    assert "last_used" in columns
+    assert "source_episode_ids" in columns
+
+
+# ── Prompt tests ─────────────────────────────────────────────────────────
+
+
+def test_procedural_induction_prompt_has_placeholders() -> None:
+    """PROCEDURAL_INDUCTION_PROMPT has {text} placeholder."""
+    from tensory.prompts import PROCEDURAL_INDUCTION_PROMPT
+
+    assert "{text}" in PROCEDURAL_INDUCTION_PROMPT
+    assert "trigger" in PROCEDURAL_INDUCTION_PROMPT
+    assert "steps" in PROCEDURAL_INDUCTION_PROMPT
+    assert "termination_condition" in PROCEDURAL_INDUCTION_PROMPT
+
+
+def test_skill_update_prompt_has_placeholders() -> None:
+    """SKILL_UPDATE_PROMPT has {skill_text} and {outcome} placeholders."""
+    from tensory.prompts import SKILL_UPDATE_PROMPT
+
+    assert "{skill_text}" in SKILL_UPDATE_PROMPT
+    assert "{outcome}" in SKILL_UPDATE_PROMPT

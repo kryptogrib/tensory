@@ -20,11 +20,20 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 # Future migrations: version -> list of SQL statements
 MIGRATIONS: dict[int, list[str]] = {
-    # 2: ["ALTER TABLE claims ADD COLUMN disposition JSON"],
+    2: [
+        "ALTER TABLE claims ADD COLUMN memory_type TEXT NOT NULL DEFAULT 'semantic'",
+        "ALTER TABLE claims ADD COLUMN trigger TEXT",
+        "ALTER TABLE claims ADD COLUMN steps JSON",
+        "ALTER TABLE claims ADD COLUMN termination_condition TEXT",
+        "ALTER TABLE claims ADD COLUMN success_rate REAL DEFAULT 0.5",
+        "ALTER TABLE claims ADD COLUMN usage_count INTEGER DEFAULT 0",
+        "ALTER TABLE claims ADD COLUMN last_used TIMESTAMP",
+        "ALTER TABLE claims ADD COLUMN source_episode_ids JSON DEFAULT '[]'",
+    ],
 }
 
 # ── Pragma configuration ──────────────────────────────────────────────────
@@ -80,7 +89,16 @@ _TABLES = [
         created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         superseded_at  TIMESTAMP,
         superseded_by  TEXT,
-        metadata       JSON
+        metadata       JSON,
+        -- Procedural memory (Skill-MDP)
+        memory_type        TEXT NOT NULL DEFAULT 'semantic',
+        trigger            TEXT,
+        steps              JSON,
+        termination_condition TEXT,
+        success_rate       REAL DEFAULT 0.5,
+        usage_count        INTEGER DEFAULT 0,
+        last_used          TIMESTAMP,
+        source_episode_ids JSON DEFAULT '[]'
     )
     """,
     """
@@ -181,6 +199,7 @@ _INDICES = [
     "CREATE INDEX IF NOT EXISTS idx_relations_to ON entity_relations(to_entity)",
     "CREATE INDEX IF NOT EXISTS idx_relevance_context ON relevance_scores(context_id)",
     "CREATE INDEX IF NOT EXISTS idx_waypoints_dst ON waypoints(dst_claim)",
+    "CREATE INDEX IF NOT EXISTS idx_claims_memory_type ON claims(memory_type)",
 ]
 
 
