@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from tensory import Claim, Tensory
@@ -90,3 +92,121 @@ def test_skill_update_prompt_has_placeholders() -> None:
 
     assert "{skill_text}" in SKILL_UPDATE_PROMPT
     assert "{outcome}" in SKILL_UPDATE_PROMPT
+
+
+# ── Fake LLM ─────────────────────────────────────────────────────────────
+
+
+class FakeProceduralLLM:
+    """Returns procedural extraction JSON for testing."""
+
+    def __init__(self) -> None:
+        self.call_count = 0
+        self.prompts: list[str] = []
+
+    async def __call__(self, prompt: str) -> str:
+        self.call_count += 1
+        self.prompts.append(prompt)
+
+        if "procedural" in prompt.lower() or "skill" in prompt.lower():
+            return json.dumps(
+                {
+                    "skills": [
+                        {
+                            "trigger": "user asks for crypto price",
+                            "steps": ["open Binance", "enter BTC/USDT", "show price"],
+                            "termination_condition": "price displayed",
+                            "expected_outcome": "user sees current price",
+                            "entities": ["Binance", "BTC"],
+                        }
+                    ]
+                }
+            )
+        elif "update" in prompt.lower() or "evaluate" in prompt.lower():
+            return json.dumps(
+                {
+                    "updated_steps": ["open Binance", "enter BTC/USDT", "check spread", "show price"],
+                    "updated_trigger": None,
+                    "updated_termination": None,
+                    "should_deprecate": False,
+                    "reasoning": "Added spread check step",
+                }
+            )
+        else:
+            return json.dumps({"claims": [], "relations": []})
+
+
+# ── Extraction tests ─────────────────────────────────────────────────────
+
+
+async def test_extract_procedural_parses_skills() -> None:
+    """extract_procedural returns Claim objects with procedural fields."""
+    from tensory.extract import extract_procedural
+
+    llm = FakeProceduralLLM()
+    skills = await extract_procedural("I opened Binance and showed the price", llm)
+
+    assert len(skills) == 1
+    skill = skills[0]
+    assert skill.memory_type == MemoryType.PROCEDURAL
+    assert skill.trigger == "user asks for crypto price"
+    assert skill.steps == ["open Binance", "enter BTC/USDT", "show price"]
+    assert skill.termination_condition == "price displayed"
+    assert "Binance" in skill.entities
+
+
+async def test_extract_procedural_returns_empty_on_no_skills() -> None:
+    """extract_procedural returns [] when LLM finds no skills."""
+    from tensory.extract import extract_procedural
+
+    async def empty_llm(prompt: str) -> str:
+        return json.dumps({"skills": []})
+
+    skills = await extract_procedural("Just a regular chat", empty_llm)
+    assert skills == []
+
+
+async def test_extract_procedural_handles_llm_failure() -> None:
+    """extract_procedural returns [] on LLM error (graceful degradation)."""
+    from tensory.extract import extract_procedural
+
+    async def broken_llm(prompt: str) -> str:
+        raise RuntimeError("LLM offline")
+
+    skills = await extract_procedural("some text", broken_llm)
+    assert skills == []
+
+
+# ── Search tests ─────────────────────────────────────────────────────────
+
+
+async def test_search_filters_by_memory_type(store: Tensory) -> None:
+    """search() with memory_type filter returns only matching claims."""
+    # Add a semantic claim
+    await store.add_claims([
+        Claim(text="Bitcoin price is $50K", entities=["Bitcoin"]),
+    ])
+    # Add a procedural claim
+    await store.add_claims([
+        Claim(
+            text="Skill: when user asks for price, do: open exchange; check price",
+            memory_type=MemoryType.PROCEDURAL,
+            trigger="user asks for price",
+            steps=["open exchange", "check price"],
+            entities=["Bitcoin"],
+        ),
+    ])
+
+    # Search all — should get both
+    all_results = await store.search("Bitcoin")
+    assert len(all_results) >= 2
+
+    # Search procedural only
+    proc_results = await store.search("Bitcoin", memory_type=MemoryType.PROCEDURAL)
+    assert len(proc_results) >= 1
+    assert all(r.claim.memory_type == MemoryType.PROCEDURAL for r in proc_results)
+
+    # Search semantic only
+    sem_results = await store.search("Bitcoin", memory_type=MemoryType.SEMANTIC)
+    assert len(sem_results) >= 1
+    assert all(r.claim.memory_type == MemoryType.SEMANTIC for r in sem_results)

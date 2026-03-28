@@ -19,7 +19,8 @@ import json
 import logging
 from typing import Any, Protocol, cast, runtime_checkable
 
-from tensory.models import Claim, ClaimType, Context, EntityRelation
+from tensory.models import Claim, ClaimType, Context, EntityRelation, MemoryType
+from tensory.prompts import PROCEDURAL_INDUCTION_PROMPT
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +46,12 @@ DOMAIN: {domain}
 Extract claims from this text that are RELEVANT to the research goal above.
 Skip information that is not relevant to the goal.
 
+IMPORTANT temporal rules:
+- If the text has a date header (e.g. "[Session 3 — 2:00 pm on 25 May, 2023]"), use it as the reference date
+- Convert ALL relative time references ("last Saturday", "yesterday", "next month") to absolute dates using the reference date
+- Include the specific date IN the claim text itself, e.g. "On 20 May 2023, Melanie ran a charity race"
+- The "temporal" field should contain the exact date in YYYY-MM-DD format when possible
+
 For each claim, also:
 - Rate its relevance to the research goal (0.0-1.0)
 - Identify entity relationships (who did what to whom)
@@ -56,10 +63,10 @@ Return ONLY valid JSON (no markdown, no explanation):
 {{
   "claims": [
     {{
-      "text": "atomic claim",
+      "text": "atomic claim WITH dates included in the text",
       "type": "fact|experience|observation|opinion",
       "entities": ["Entity1", "Entity2"],
-      "temporal": "when this happened, or null",
+      "temporal": "YYYY-MM-DD or descriptive date, never null if any time reference exists",
       "confidence": 0.0-1.0,
       "relevance": 0.0-1.0
     }}
@@ -78,6 +85,12 @@ If nothing is relevant to the research goal, return {{"claims": [], "relations":
 
 EXTRACT_PROMPT_GENERIC = """Extract all factual claims and entity relationships from this text.
 
+IMPORTANT temporal rules:
+- If the text has a date header (e.g. "[Session 3 — 2:00 pm on 25 May, 2023]"), use it as the reference date
+- Convert ALL relative time references ("last Saturday", "yesterday", "next month") to absolute dates using the reference date
+- Include the specific date IN the claim text itself, e.g. "On 20 May 2023, Melanie ran a charity race"
+- The "temporal" field should contain the exact date in YYYY-MM-DD format when possible
+
 TEXT:
 {text}
 
@@ -85,10 +98,10 @@ Return ONLY valid JSON (no markdown, no explanation):
 {{
   "claims": [
     {{
-      "text": "atomic claim",
+      "text": "atomic claim WITH dates included in the text",
       "type": "fact|experience|observation|opinion",
       "entities": ["Entity1", "Entity2"],
-      "temporal": "when this happened, or null",
+      "temporal": "YYYY-MM-DD or descriptive date, never null if any time reference exists",
       "confidence": 0.0-1.0,
       "relevance": 1.0
     }}
@@ -140,6 +153,78 @@ async def extract_claims(
     except Exception as exc:
         logger.warning("LLM extraction failed: %s", exc)
         return [], []
+
+
+async def extract_procedural(
+    text: str,
+    llm: LLMProtocol,
+) -> list[Claim]:
+    """Extract procedural skills from raw text using LLM.
+
+    Uses Skill-MDP framework (ProcMEM): trigger + steps + termination.
+
+    Args:
+        text: Raw experience text to extract skills from.
+        llm: LLM callable (prompt → response text).
+
+    Returns:
+        List of Claim objects with memory_type=PROCEDURAL.
+    """
+    prompt = PROCEDURAL_INDUCTION_PROMPT.format(text=text)
+
+    try:
+        response = await llm(prompt)
+        return _parse_procedural_extraction(response)
+    except Exception as exc:
+        logger.warning("Procedural extraction failed: %s", exc)
+        return []
+
+
+def _parse_procedural_extraction(response: str) -> list[Claim]:
+    """Parse LLM response into procedural Claim objects."""
+    text = response.strip()
+    if text.startswith("```"):
+        lines = text.split("\n")
+        text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+
+    try:
+        data: dict[str, Any] = json.loads(text)
+    except json.JSONDecodeError:
+        logger.warning("Failed to parse procedural extraction response as JSON")
+        return []
+
+    skills: list[Claim] = []
+    for item in cast(list[dict[str, Any]], data.get("skills", [])):
+        trigger = str(item.get("trigger", "")).strip()
+        steps_raw = item.get("steps", [])
+        steps = [str(s).strip() for s in steps_raw if s] if isinstance(steps_raw, list) else []
+
+        if not trigger and not steps:
+            continue  # skip empty skills
+
+        termination = str(item.get("termination_condition", "")).strip() or None
+        outcome = str(item.get("expected_outcome", "")).strip()
+
+        # Build descriptive text for embedding/FTS search
+        steps_text = "; ".join(steps) if steps else "no steps"
+        claim_text = f"Skill: when {trigger}, do: {steps_text}"
+        if outcome:
+            claim_text += f" → {outcome}"
+
+        skills.append(
+            Claim(
+                text=claim_text,
+                type=ClaimType.EXPERIENCE,  # procedural derived from experience
+                memory_type=MemoryType.PROCEDURAL,
+                trigger=trigger,
+                steps=steps,
+                termination_condition=termination,
+                entities=_parse_list(item.get("entities", [])),
+                confidence=0.5,  # new skills start at neutral confidence
+            )
+        )
+
+    return skills
 
 
 # ── Parsing ───────────────────────────────────────────────────────────────
