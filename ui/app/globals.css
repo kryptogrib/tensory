@@ -179,3 +179,25 @@
   outline: none !important;
   box-shadow: none !important;
 }
+
+/* Hide all connection handles — edges dissolve into nodes */
+.react-flow__handle {
+  opacity: 0 !important;
+  width: 0 !important;
+  height: 0 !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  border: none !important;
+  background: transparent !important;
+  pointer-events: none !important;
+}
+
+/* Remove edge marker dots at connection points */
+.react-flow__edge-interaction {
+  stroke: transparent !important;
+}
+
+/* Remove default React Flow edge selection highlight */
+.react-flow__edge.selected .react-flow__edge-interaction {
+  stroke: transparent !important;
+}

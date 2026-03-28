@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useState, useMemo } from "react";
-import { getStraightPath, type EdgeProps } from "@xyflow/react";
+import { type EdgeProps } from "@xyflow/react";
 
 export type SalienceEdgeData = {
   relType: string;
@@ -11,15 +11,15 @@ export type SalienceEdgeData = {
 
 function getEdgeStyle(confidence: number) {
   if (confidence > 0.7) {
-    return { strokeDasharray: undefined, strokeWidth: 1.8, opacity: 0.3, color: "#d97706" };
+    return { strokeDasharray: undefined, strokeWidth: 1.8, opacity: 0.35, color: "#d97706" };
   }
   if (confidence >= 0.4) {
-    return { strokeDasharray: "8 4", strokeWidth: 1, opacity: 0.15, color: "#d97706" };
+    return { strokeDasharray: "8 4", strokeWidth: 1.1, opacity: 0.18, color: "#d97706" };
   }
   if (confidence >= 0.2) {
-    return { strokeDasharray: "4 6", strokeWidth: 0.6, opacity: 0.08, color: "#b45309" };
+    return { strokeDasharray: "4 6", strokeWidth: 0.7, opacity: 0.1, color: "#b45309" };
   }
-  return { strokeDasharray: "2 8", strokeWidth: 0.4, opacity: 0.04, color: "#78716c" };
+  return { strokeDasharray: "2 8", strokeWidth: 0.4, opacity: 0.05, color: "#78716c" };
 }
 
 function SalienceEdgeComponent({
@@ -39,14 +39,15 @@ function SalienceEdgeComponent({
 
   const edgeStyle = useMemo(() => getEdgeStyle(confidence), [confidence]);
 
-  const [edgePath, labelX, labelY] = getStraightPath({
-    sourceX,
-    sourceY,
-    targetX,
-    targetY,
-  });
+  // Simple straight path
+  const edgePath = `M ${sourceX} ${sourceY} L ${targetX} ${targetY}`;
+  const labelX = (sourceX + targetX) / 2;
+  const labelY = (sourceY + targetY) / 2;
 
-  // Merge external opacity from selection highlighting
+  // Unique gradient ID per edge
+  const gradientId = `edge-fade-${id}`;
+
+  // External opacity from selection highlighting
   const externalOpacity =
     externalStyle && typeof externalStyle === "object" && "opacity" in externalStyle
       ? (externalStyle as { opacity: number }).opacity
@@ -60,28 +61,45 @@ function SalienceEdgeComponent({
         : edgeStyle.opacity
   );
 
-  const showTravelDot = confidence > 0.6;
+  const strokeColor = selected || hovered ? "#d97706" : edgeStyle.color;
 
   return (
     <g
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      {/* Invisible wider path for hover target */}
+      {/* Gradient: fades at both ends so edge dissolves into nodes */}
+      <defs>
+        <linearGradient
+          id={gradientId}
+          x1={sourceX}
+          y1={sourceY}
+          x2={targetX}
+          y2={targetY}
+          gradientUnits="userSpaceOnUse"
+        >
+          <stop offset="0%" stopColor={strokeColor} stopOpacity={0} />
+          <stop offset="12%" stopColor={strokeColor} stopOpacity={1} />
+          <stop offset="88%" stopColor={strokeColor} stopOpacity={1} />
+          <stop offset="100%" stopColor={strokeColor} stopOpacity={0} />
+        </linearGradient>
+      </defs>
+
+      {/* Invisible wider path for easier hover */}
       <path
         d={edgePath}
         fill="none"
         stroke="transparent"
-        strokeWidth={14}
+        strokeWidth={16}
         style={{ cursor: "pointer" }}
       />
 
-      {/* Visible edge */}
+      {/* Visible edge with dissolving gradient */}
       <path
         id={id}
         d={edgePath}
         fill="none"
-        stroke={selected || hovered ? "#d97706" : edgeStyle.color}
+        stroke={`url(#${gradientId})`}
         strokeWidth={hovered ? edgeStyle.strokeWidth * 1.5 : edgeStyle.strokeWidth}
         strokeDasharray={edgeStyle.strokeDasharray}
         opacity={finalOpacity}
@@ -90,11 +108,11 @@ function SalienceEdgeComponent({
       />
 
       {/* Traveling impulse dot for strong edges */}
-      {showTravelDot && (
+      {confidence > 0.6 && (
         <circle
-          r={2}
+          r={1.5}
           fill="#fbbf24"
-          opacity={0.6}
+          opacity={0.5}
           style={{
             offsetPath: `path('${edgePath}')`,
             animation: `travel-dot ${2.5 + Math.random() * 2}s linear infinite`,
