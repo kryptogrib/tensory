@@ -1,14 +1,16 @@
 "use client";
 
-import { useCallback, useMemo, useState, useEffect } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   ReactFlow,
   Background,
   BackgroundVariant,
-  useNodesState,
-  useEdgesState,
+  applyNodeChanges,
+  applyEdgeChanges,
   type Node,
   type Edge,
+  type NodeChange,
+  type EdgeChange,
   type NodeMouseHandler,
   ReactFlowProvider,
 } from "@xyflow/react";
@@ -113,73 +115,85 @@ function GraphCanvas({ mode }: GraphCanvasProps) {
 
   const { data: edgesData } = useGraphEdges({});
 
-  const initialNodes = useMemo(
+  // Compute base layout from API data
+  const baseNodes = useMemo(
     () => layoutNodes(entities ?? []),
     [entities]
   );
 
-  const initialEdges = useMemo(
+  const baseEdges = useMemo(
     () => buildEdges(edgesData ?? [], entities ?? []),
     [edgesData, entities]
   );
 
-  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
+  // Apply selection highlighting via useMemo — no effects, no cycles
+  const nodes = useMemo(() => {
+    if (!selectedNode) return baseNodes;
 
-  // Sync when data changes
-  useEffect(() => {
-    setNodes(initialNodes);
-  }, [initialNodes, setNodes]);
-
-  useEffect(() => {
-    setEdges(initialEdges);
-  }, [initialEdges, setEdges]);
-
-  // Dim unconnected nodes/edges on selection
-  useEffect(() => {
-    if (!selectedNode) {
-      // Reset all
-      setNodes((nds) =>
-        nds.map((n) => ({ ...n, selected: false }))
-      );
-      setEdges((eds) =>
-        eds.map((e) => ({ ...e, selected: false }))
-      );
-      return;
-    }
-
-    const connectedEdgeIds = new Set<string>();
     const connectedNodeIds = new Set<string>([selectedNode]);
-
-    edges.forEach((e) => {
+    for (const e of baseEdges) {
       if (e.source === selectedNode || e.target === selectedNode) {
-        connectedEdgeIds.add(e.id);
         connectedNodeIds.add(e.source);
         connectedNodeIds.add(e.target);
       }
-    });
+    }
 
-    setNodes((nds) =>
-      nds.map((n) => ({
-        ...n,
-        selected: connectedNodeIds.has(n.id),
-        style: connectedNodeIds.has(n.id)
-          ? { opacity: 1 }
-          : { opacity: 0.2, transition: "opacity 0.3s ease" },
-      }))
-    );
+    return baseNodes.map((n) => ({
+      ...n,
+      style: connectedNodeIds.has(n.id)
+        ? { opacity: 1 }
+        : { opacity: 0.2, transition: "opacity 0.3s ease" },
+    }));
+  }, [baseNodes, baseEdges, selectedNode]);
 
-    setEdges((eds) =>
-      eds.map((e) => ({
-        ...e,
-        selected: connectedEdgeIds.has(e.id),
-      }))
-    );
-  }, [selectedNode, edges, setNodes, setEdges]);
+  const edges = useMemo(() => {
+    if (!selectedNode) return baseEdges;
+
+    const connectedEdgeIds = new Set<string>();
+    for (const e of baseEdges) {
+      if (e.source === selectedNode || e.target === selectedNode) {
+        connectedEdgeIds.add(e.id);
+      }
+    }
+
+    return baseEdges.map((e) => ({
+      ...e,
+      style: connectedEdgeIds.has(e.id)
+        ? { opacity: 1 }
+        : { opacity: 0.1, transition: "opacity 0.3s ease" },
+    }));
+  }, [baseEdges, selectedNode]);
+
+  // Handle React Flow's internal changes (drag, etc.) by merging into base
+  const [nodeChanges, setNodeChanges] = useState<Node[]>([]);
+  const displayNodes = nodeChanges.length > 0 ? nodeChanges : nodes;
+
+  const onNodesChange = useCallback(
+    (changes: NodeChange[]) => {
+      setNodeChanges((prev) => {
+        const current = prev.length > 0 ? prev : nodes;
+        return applyNodeChanges(changes, current);
+      });
+    },
+    [nodes]
+  );
+
+  const onEdgesChange = useCallback(
+    (changes: EdgeChange[]) => {
+      // Edge changes (selection etc.) — apply to current edges
+      void changes; // Read-only graph, no edge mutations needed
+    },
+    []
+  );
+
+  // Reset drag state when API data changes
+  const dataKey = entities?.length ?? 0;
+  useMemo(() => setNodeChanges([]), [dataKey]);
 
   const onNodeClick: NodeMouseHandler = useCallback(
     (_event, node) => {
       setSelectedNode((prev) => (prev === node.id ? null : node.id));
+      setNodeChanges([]); // Reset to recalculate from selection
     },
     []
   );
@@ -194,13 +208,14 @@ function GraphCanvas({ mode }: GraphCanvasProps) {
 
   const onPaneClick = useCallback(() => {
     setSelectedNode(null);
+    setNodeChanges([]);
   }, []);
 
   return (
     <div className="relative h-full w-full" style={{ background: "#0a0908" }}>
       <CursorGlow />
       <ReactFlow
-        nodes={nodes}
+        nodes={displayNodes}
         edges={edges}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
