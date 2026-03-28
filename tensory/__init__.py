@@ -28,11 +28,13 @@ from tensory.models import (
     ReflectResult,
     SearchResult,
 )
+from tensory.service import TensoryService
 from tensory.store import Tensory
 
 __all__ = [
     # Core
     "Tensory",
+    "TensoryService",
     # Models
     "Claim",
     "ClaimType",

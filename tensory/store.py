@@ -174,6 +174,16 @@ class Tensory:
         self._recent_entities: Counter[str] = Counter()
         self._vec_available: bool = True  # set False if sqlite-vec not loaded
 
+    @property
+    def db(self) -> aiosqlite.Connection:
+        """Public read-only access to the database connection (for service layer)."""
+        return self._db
+
+    @property
+    def graph(self) -> GraphBackend:
+        """Public read-only access to the graph backend (for service layer)."""
+        return self._graph
+
     @classmethod
     async def create(
         cls,
