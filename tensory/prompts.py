@@ -160,7 +160,9 @@ Return ONLY valid JSON:
 
 # ── 4. Procedural Memory — skill induction (PlugMem + ProcMEM) ────────
 
-PROCEDURAL_INDUCTION_PROMPT: Final[str] = """Extract procedural knowledge (skills) from this experience.
+PROCEDURAL_INDUCTION_PROMPT: Final[
+    str
+] = """Extract procedural knowledge (skills) from this experience.
 
 A skill is a reusable procedure: "how to do something" — not just "what happened".
 Use the Skill-MDP framework:
@@ -208,4 +210,27 @@ Return ONLY valid JSON:
   "updated_termination": "refined condition or null",
   "should_deprecate": false,
   "reasoning": "why these changes"
+}}"""
+
+# ── 6. Topic Segmentation — splitting long texts for hybrid extraction ──
+
+TOPIC_SEGMENTATION_PROMPT: Final[str] = """Split this text into thematic sections for detailed analysis.
+
+Rules:
+- Create NO MORE than {max_segments} sections
+- Each section should be a self-contained topic or event
+- Preserve ALL text — do not summarize or skip content
+- If the text is already focused on one topic, return 1 section
+
+TEXT:
+{text}
+
+Return ONLY valid JSON (no markdown, no explanation):
+{{
+  "sections": [
+    {{
+      "title": "short descriptive title",
+      "text": "full text of this section (copy verbatim, do not summarize)"
+    }}
+  ]
 }}"""
