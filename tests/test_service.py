@@ -22,11 +22,13 @@ async def service() -> TensoryService:
     """Create an in-memory Tensory with seed data and wrap in TensoryService."""
     store = await Tensory.create(":memory:")
     svc = TensoryService(store)
-    await store.add_claims([
-        Claim(text="Google builds AI chips", entities=["Google"], type=ClaimType.FACT),
-        Claim(text="Meta launches Llama 4", entities=["Meta"], type=ClaimType.FACT),
-        Claim(text="AI hype is overblown", entities=["AI"], type=ClaimType.OPINION),
-    ])
+    await store.add_claims(
+        [
+            Claim(text="Google builds AI chips", entities=["Google"], type=ClaimType.FACT),
+            Claim(text="Meta launches Llama 4", entities=["Meta"], type=ClaimType.FACT),
+            Claim(text="AI hype is overblown", entities=["AI"], type=ClaimType.OPINION),
+        ]
+    )
     yield svc  # type: ignore[misc]
     await store.close()
 

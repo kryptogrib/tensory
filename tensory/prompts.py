@@ -214,7 +214,9 @@ Return ONLY valid JSON:
 
 # ── 6. Topic Segmentation — splitting long texts for hybrid extraction ──
 
-TOPIC_SEGMENTATION_PROMPT: Final[str] = """Split this text into thematic sections for detailed analysis.
+TOPIC_SEGMENTATION_PROMPT: Final[
+    str
+] = """Split this text into thematic sections for detailed analysis.
 
 Rules:
 - Create NO MORE than {max_segments} sections

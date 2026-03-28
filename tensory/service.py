@@ -270,9 +270,7 @@ class TensoryService:
         db = self.store.db
 
         # Recent claims (newest 5)
-        cursor = await db.execute(
-            "SELECT * FROM claims ORDER BY created_at DESC LIMIT 5"
-        )
+        cursor = await db.execute("SELECT * FROM claims ORDER BY created_at DESC LIMIT 5")
         claim_rows = await cursor.fetchall()
         col_names = [desc[0] for desc in cursor.description] if cursor.description else []
 
@@ -393,9 +391,7 @@ class TensoryService:
         # Fetch episode
         episode: Episode | None = None
         if claim.episode_id:
-            ep_cursor = await db.execute(
-                "SELECT * FROM episodes WHERE id = ?", (claim.episode_id,)
-            )
+            ep_cursor = await db.execute("SELECT * FROM episodes WHERE id = ?", (claim.episode_id,))
             ep_row = await ep_cursor.fetchone()
             if ep_row is not None:
                 ep_cols = [d[0] for d in ep_cursor.description] if ep_cursor.description else []
@@ -474,9 +470,7 @@ class TensoryService:
         context: Context | None = None
         if context_id is not None:
             db = self.store.db
-            cursor = await db.execute(
-                "SELECT * FROM contexts WHERE id = ?", (context_id,)
-            )
+            cursor = await db.execute("SELECT * FROM contexts WHERE id = ?", (context_id,))
             row = await cursor.fetchone()
             if row is not None:
                 col_names = [d[0] for d in cursor.description] if cursor.description else []

@@ -6,12 +6,17 @@ Three search channels run in parallel (inspired by Hindsight TEMPR):
 3. **Graph** — entity co-occurrence traversal
 
 Results are merged via weighted RRF (Reciprocal Rank Fusion).
+Optional Fisher-Rao reranking (inspired by SuperLocalMemory V3, arXiv:2603.14588)
+re-scores top candidates using information-geometric similarity when cosine
+scores are too close to discriminate.
+
 Any channel that fails returns empty results (graceful degradation).
 
 References:
 - RRF formula: plg.uwaterloo.ca/~gvcormac/cormacksigir09-rrf.pdf
 - Hybrid search with sqlite-vec + FTS5: alexgarcia.xyz/blog/2024/sqlite-vec-hybrid-search/
 - Parallel TEMPR retrieval: github.com/vectorize-io/hindsight
+- Fisher-Rao metric: SuperLocalMemory V3 (arXiv:2603.14588)
 """
 
 from __future__ import annotations
@@ -19,7 +24,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import re
+import struct
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
@@ -434,3 +441,158 @@ def row_to_claim(row: aiosqlite.Row) -> Claim:
         last_used=datetime.fromisoformat(str(last_used_raw)) if last_used_raw else None,
         source_episode_ids=source_episode_ids,
     )
+
+
+# ── Fisher-Rao reranking (SuperLocalMemory V3) ─────────────────────────────
+
+# Variance heuristic constants (from SLM V3, Section 4.2)
+VARIANCE_FLOOR: float = 0.05  # high-confidence dimensions
+VARIANCE_CEIL: float = 2.0  # low-confidence dimensions
+
+
+def _estimate_variance(embedding: list[float]) -> list[float]:
+    """Estimate per-dimension variance using SLM V3 signal-magnitude heuristic.
+
+    Dimensions with large absolute values in the L2-normalized embedding
+    get low variance (model is "confident"), dimensions near zero get
+    high variance (model is "uncertain").  This lets the Fisher metric
+    down-weight noisy dimensions automatically.
+
+    Reference: SuperLocalMemory V3 (arXiv:2603.14588), Section 4.2.
+
+    TODO(contributor): This is the core design decision for Fisher quality.
+    The FLOOR/CEIL constants and the linear interpolation below come from
+    SLM V3 defaults.  Alternative approaches:
+      - Corpus-level variance (compute σ² across all stored embeddings)
+      - Exponential mapping instead of linear
+      - Per-context variance (different topics → different noise profiles)
+    """
+    norm = math.sqrt(sum(x * x for x in embedding)) or 1e-12
+    normalized = [x / norm for x in embedding]
+    max_abs = max(abs(x) for x in normalized) or 1e-12
+
+    return [VARIANCE_CEIL - (VARIANCE_CEIL - VARIANCE_FLOOR) * abs(x) / max_abs for x in normalized]
+
+
+def _fisher_distance(a: list[float], b: list[float]) -> float:
+    """Compute approximate Fisher-Rao distance between two embeddings.
+
+    Maps each embedding to a diagonal Gaussian N(μ, diag(σ²)) using
+    the signal-magnitude heuristic, then computes the closed-form
+    Fisher-Rao distance for diagonal Gaussians.
+
+    For numerical stability, uses Taylor expansion of arccosh for
+    small delta values.
+    """
+    var_a = _estimate_variance(a)
+    var_b = _estimate_variance(b)
+
+    total = 0.0
+    for mu_a, mu_b, s_a, s_b in zip(a, b, var_a, var_b, strict=False):
+        denom = 4.0 * s_a * s_b
+        if denom < 1e-15:
+            continue
+        delta = ((mu_a - mu_b) ** 2 + 2.0 * (s_a - s_b) ** 2) / denom
+
+        # arccosh(1 + delta) — Taylor expansion for small delta
+        if delta < 1e-6:
+            arc = math.sqrt(2.0 * delta) * (1.0 - delta / 12.0)
+        else:
+            arc = math.log1p(delta + math.sqrt(delta * (delta + 2.0)))
+        total += arc * arc
+
+    return math.sqrt(total)
+
+
+def _fisher_similarity(a: list[float], b: list[float], temperature: float = 15.0) -> float:
+    """Convert Fisher-Rao distance to a similarity score in [0, 1].
+
+    Uses exponential kernel: sim = exp(-distance / temperature).
+    Temperature=15.0 is the SLM V3 default.
+    """
+    dist = _fisher_distance(a, b)
+    return math.exp(-dist / temperature)
+
+
+def should_rerank(
+    results: list[SearchResult],
+    min_candidates: int = 3,
+    threshold: float = 0.05,
+) -> bool:
+    """Decide whether Fisher reranking would help.
+
+    Returns True when the top cosine scores are too close together —
+    meaning cosine similarity cannot discriminate between candidates.
+    Fisher's variance-weighted metric may separate them better.
+
+    Args:
+        results: Search results sorted by score (descending).
+        min_candidates: Minimum results needed for reranking to make sense.
+        threshold: Maximum score spread that triggers reranking.
+    """
+    if len(results) < min_candidates:
+        return False
+    spread = results[0].score - results[min_candidates - 1].score
+    return spread < threshold
+
+
+async def fisher_rerank(
+    query_embedding: list[float],
+    results: list[SearchResult],
+    db: aiosqlite.Connection,
+    *,
+    top_k: int = 20,
+) -> list[SearchResult]:
+    """Re-rank search results using Fisher-Rao similarity.
+
+    Loads stored embeddings for the top-k candidates, computes Fisher
+    similarity against the query embedding, and re-sorts.
+
+    Results beyond top_k keep their original order (appended at the end).
+
+    Args:
+        query_embedding: The query vector.
+        results: RRF-merged results from hybrid_search.
+        db: Database connection (to load claim embeddings).
+        top_k: How many top results to rerank.
+    """
+    if not results or not query_embedding:
+        return results
+
+    to_rerank = results[:top_k]
+    tail = results[top_k:]
+
+    # Load embeddings for candidates
+    reranked: list[SearchResult] = []
+    for result in to_rerank:
+        cursor = await db.execute(
+            "SELECT embedding FROM claim_embeddings WHERE claim_id = ?",
+            (result.claim.id,),
+        )
+        row = await cursor.fetchone()
+        if row is None:
+            # No embedding stored — keep original score
+            reranked.append(result)
+            continue
+
+        raw = row[0]
+        if isinstance(raw, bytes):
+            # sqlite-vec stores embeddings as raw float32 bytes
+            n_floats = len(raw) // 4
+            claim_embedding: list[float] = list(struct.unpack(f"<{n_floats}f", raw))
+        else:
+            claim_embedding = json.loads(str(raw))
+        fisher_score = _fisher_similarity(query_embedding, claim_embedding)
+
+        reranked.append(
+            SearchResult(
+                claim=result.claim,
+                score=fisher_score,
+                relevance=result.relevance,
+                method="fisher",
+            )
+        )
+
+    # Sort by Fisher score (descending)
+    reranked.sort(key=lambda r: r.score, reverse=True)
+    return reranked + tail

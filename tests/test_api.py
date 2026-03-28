@@ -23,10 +23,12 @@ async def client() -> AsyncIterator[AsyncClient]:
     """Create test client with seeded in-memory store."""
     store = await Tensory.create(":memory:")
     svc = TensoryService(store)
-    await store.add_claims([
-        Claim(text="Google builds AI", entities=["Google"], type=ClaimType.FACT),
-        Claim(text="AI hype is overblown", entities=["AI"], type=ClaimType.OPINION),
-    ])
+    await store.add_claims(
+        [
+            Claim(text="Google builds AI", entities=["Google"], type=ClaimType.FACT),
+            Claim(text="AI hype is overblown", entities=["AI"], type=ClaimType.OPINION),
+        ]
+    )
     # Set service directly — ASGITransport does not trigger lifespan events
     set_service(svc)
     application = create_app(service=svc)

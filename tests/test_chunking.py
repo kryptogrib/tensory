@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 
 def test_estimate_tokens_short() -> None:
     """estimate_tokens returns approximate token count."""
@@ -66,10 +68,6 @@ def test_build_section_header() -> None:
     assert "Market Analysis" in header
 
 
-import json
-import pytest
-
-
 # ── Fake LLM for segmentation ───────────────────────────────────────────
 
 
@@ -84,10 +82,12 @@ class FakeSegmentLLM:
         self.call_count += 1
         sections = []
         for i in range(self.num_sections):
-            sections.append({
-                "title": f"Topic {i + 1}",
-                "text": f"Content of section {i + 1}. Some details here.",
-            })
+            sections.append(
+                {
+                    "title": f"Topic {i + 1}",
+                    "text": f"Content of section {i + 1}. Some details here.",
+                }
+            )
         return json.dumps({"sections": sections})
 
 

@@ -302,8 +302,15 @@ class SQLiteGraphBackend:
             )
         rows = await cursor.fetchall()
         cols = (
-            "id", "from_entity", "to_entity", "rel_type", "fact",
-            "episode_id", "confidence", "created_at", "expired_at",
+            "id",
+            "from_entity",
+            "to_entity",
+            "rel_type",
+            "fact",
+            "episode_id",
+            "confidence",
+            "created_at",
+            "expired_at",
         )
         return [dict(zip(cols, row, strict=False)) for row in rows]
 
@@ -320,7 +327,8 @@ class SQLiteGraphBackend:
 
         # Include the seed entity so edges from it are captured
         seed_cursor = await self._db.execute(
-            "SELECT id FROM entities WHERE name = ?", (entity_name,),
+            "SELECT id FROM entities WHERE name = ?",
+            (entity_name,),
         )
         seed_row = await seed_cursor.fetchone()
         if seed_row is not None:
@@ -351,8 +359,15 @@ class SQLiteGraphBackend:
         )
         edge_rows = await cursor.fetchall()
         edge_cols = (
-            "id", "from_entity", "to_entity", "rel_type", "fact",
-            "episode_id", "confidence", "created_at", "expired_at",
+            "id",
+            "from_entity",
+            "to_entity",
+            "rel_type",
+            "fact",
+            "episode_id",
+            "confidence",
+            "created_at",
+            "expired_at",
         )
         edges: list[dict[str, object]] = [dict(zip(edge_cols, r, strict=False)) for r in edge_rows]
 

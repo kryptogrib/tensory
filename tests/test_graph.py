@@ -114,7 +114,9 @@ async def test_list_edges(store: Tensory) -> None:
     eid_a = await store._graph.add_entity("Foo", "org")
     eid_b = await store._graph.add_entity("Bar", "org")
     await store._graph.add_edge(
-        eid_a, eid_b, "WORKS_WITH",
+        eid_a,
+        eid_b,
+        "WORKS_WITH",
         properties={"fact": "Foo works with Bar", "episode_id": "ep1", "confidence": 0.95},
     )
     await store._db.commit()
@@ -128,8 +130,17 @@ async def test_list_edges(store: Tensory) -> None:
     assert edge["fact"] == "Foo works with Bar"
     assert edge["confidence"] == 0.95
     # Verify all expected fields
-    for field in ("id", "from_entity", "to_entity", "rel_type", "fact",
-                  "episode_id", "confidence", "created_at", "expired_at"):
+    for field in (
+        "id",
+        "from_entity",
+        "to_entity",
+        "rel_type",
+        "fact",
+        "episode_id",
+        "confidence",
+        "created_at",
+        "expired_at",
+    ):
         assert field in edge
 
 

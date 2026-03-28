@@ -207,7 +207,12 @@ async def extract_long(
     """
     import asyncio
 
-    from tensory.chunking import build_section_header, deduplicate_entities, normalize_entity, segment_text
+    from tensory.chunking import (
+        build_section_header,
+        deduplicate_entities,
+        normalize_entity,
+        segment_text,
+    )
 
     # Step 1: Segment text into thematic sections
     sections = await segment_text(text, llm, max_segments=max_segments)
@@ -231,10 +236,7 @@ async def extract_long(
         return await extract_claims(augmented_text, llm, context=context)
 
     # Step 3: Parallel extraction
-    tasks = [
-        _extract_section(i, title, sec_text)
-        for i, (title, sec_text) in enumerate(sections)
-    ]
+    tasks = [_extract_section(i, title, sec_text) for i, (title, sec_text) in enumerate(sections)]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
     # Step 4: Aggregate results
@@ -257,9 +259,7 @@ async def extract_long(
     for name in canonical:
         canonical_map[normalize_entity(name)] = name
     for claim in all_claims:
-        claim.entities = [
-            canonical_map.get(normalize_entity(e), e) for e in claim.entities
-        ]
+        claim.entities = [canonical_map.get(normalize_entity(e), e) for e in claim.entities]
 
     return all_claims, all_relations
 

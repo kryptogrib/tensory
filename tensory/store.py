@@ -557,8 +557,7 @@ class Tensory:
 
         # ── Fisher rerank (if needed) ────────────────────────────────────
         if query_embedding and (
-            metric == "fisher"
-            or (metric == "auto" and should_rerank(results))
+            metric == "fisher" or (metric == "auto" and should_rerank(results))
         ):
             results = await fisher_rerank(
                 query_embedding, results, self._db, top_k=min(20, len(results))
