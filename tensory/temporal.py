@@ -19,7 +19,7 @@ import math
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from tensory.models import Claim, ClaimType
+from tensory.models import Claim, ClaimType, MemoryType
 
 if TYPE_CHECKING:
     import aiosqlite
@@ -239,6 +239,15 @@ def _row_to_claim(row: aiosqlite.Row) -> Claim:
     if metadata_raw:
         metadata = json.loads(str(metadata_raw))
 
+    # Parse procedural JSON columns
+    steps_raw = row["steps"] if "steps" in row.keys() else None
+    steps: list[str] | None = json.loads(str(steps_raw)) if steps_raw else None
+
+    source_ep_raw = row["source_episode_ids"] if "source_episode_ids" in row.keys() else None
+    source_episode_ids: list[str] = json.loads(str(source_ep_raw)) if source_ep_raw else []
+
+    last_used_raw = row["last_used"] if "last_used" in row.keys() else None
+
     return Claim(
         id=row["id"],
         text=row["text"],
@@ -257,4 +266,12 @@ def _row_to_claim(row: aiosqlite.Row) -> Claim:
         ),
         superseded_by=row["superseded_by"],
         metadata=metadata,
+        memory_type=MemoryType(row["memory_type"]) if "memory_type" in row.keys() and row["memory_type"] else MemoryType.SEMANTIC,
+        trigger=row["trigger"] if "trigger" in row.keys() else None,
+        steps=steps,
+        termination_condition=row["termination_condition"] if "termination_condition" in row.keys() else None,
+        success_rate=float(row["success_rate"]) if "success_rate" in row.keys() and row["success_rate"] is not None else 0.5,
+        usage_count=int(row["usage_count"]) if "usage_count" in row.keys() and row["usage_count"] is not None else 0,
+        last_used=datetime.fromisoformat(str(last_used_raw)) if last_used_raw else None,
+        source_episode_ids=source_episode_ids,
     )

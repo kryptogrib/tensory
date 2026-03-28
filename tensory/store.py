@@ -32,6 +32,7 @@ from tensory.models import (
     Context,
     Episode,
     IngestResult,
+    MemoryType,
     ReflectResult,
     SearchResult,
 )
@@ -329,8 +330,10 @@ class Tensory:
             await self._db.execute(
                 """INSERT INTO claims
                    (id, episode_id, context_id, text, type, confidence, relevance,
-                    salience, decay_rate, valid_from, valid_to, created_at, metadata)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    salience, decay_rate, valid_from, valid_to, created_at, metadata,
+                    memory_type, trigger, steps, termination_condition, success_rate,
+                    usage_count, source_episode_ids)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     claim.id,
                     claim.episode_id,
@@ -345,6 +348,13 @@ class Tensory:
                     claim.valid_to.isoformat() if claim.valid_to else None,
                     claim.created_at.isoformat(),
                     json.dumps(claim.metadata, default=str),
+                    claim.memory_type.value,
+                    claim.trigger,
+                    json.dumps(claim.steps) if claim.steps is not None else None,
+                    claim.termination_condition,
+                    claim.success_rate,
+                    claim.usage_count,
+                    json.dumps(claim.source_episode_ids),
                 ),
             )
 
@@ -486,6 +496,7 @@ class Tensory:
         context: Context | None = None,
         limit: int = 10,
         weights: dict[str, float] | None = None,
+        memory_type: MemoryType | None = None,
     ) -> list[SearchResult]:
         """Hybrid search across vector, FTS, and graph channels.
 
@@ -497,6 +508,7 @@ class Tensory:
             context: Optional context to weight relevance.
             limit: Maximum results to return.
             weights: Channel weights for RRF (default: vector=0.4, fts=0.3, graph=0.3).
+            memory_type: Optional filter by memory type (semantic, procedural, episodic).
         """
         # Embed the query
         query_embedding: list[float] | None = None
@@ -515,6 +527,7 @@ class Tensory:
             context_id=context.id if context else None,
             limit=limit,
             weights=weights,
+            memory_type=memory_type.value if memory_type else None,
         )
 
         # ── Load entities for results (needed for priming) ────────────────

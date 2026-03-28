@@ -23,7 +23,7 @@ import re
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from tensory.models import Claim, ClaimType, SearchResult
+from tensory.models import Claim, ClaimType, MemoryType, SearchResult
 
 if TYPE_CHECKING:
     import aiosqlite
@@ -52,6 +52,7 @@ async def hybrid_search(
     context_id: str | None = None,
     limit: int = 10,
     weights: dict[str, float] | None = None,
+    memory_type: str | None = None,
 ) -> list[SearchResult]:
     """Parallel retrieval across 3 channels + weighted RRF merge.
 
@@ -63,18 +64,19 @@ async def hybrid_search(
         context_id: Optional context for relevance filtering.
         limit: Maximum results to return.
         weights: Channel weights for RRF (default: vector=0.4, fts=0.3, graph=0.3).
+        memory_type: Optional memory type filter (e.g. "semantic", "procedural").
     """
     w = weights or DEFAULT_WEIGHTS
     internal_limit = max(limit * 3, 20)  # fetch more for better RRF merge
 
     # All three channels in parallel — graceful degradation on failure
-    fts_task = fts_search(query, db, context_id=context_id, limit=internal_limit)
+    fts_task = fts_search(query, db, context_id=context_id, limit=internal_limit, memory_type=memory_type)
     vec_task = (
-        vector_search(embedding, db, context_id=context_id, limit=internal_limit)
+        vector_search(embedding, db, context_id=context_id, limit=internal_limit, memory_type=memory_type)
         if embedding
         else _empty_results()
     )
-    graph_task = graph_search(query, graph_backend, db, context_id=context_id, limit=internal_limit)
+    graph_task = graph_search(query, graph_backend, db, context_id=context_id, limit=internal_limit, memory_type=memory_type)
 
     results = await asyncio.gather(fts_task, vec_task, graph_task, return_exceptions=True)
 
@@ -119,23 +121,31 @@ async def fts_search(
     *,
     context_id: str | None = None,
     limit: int = 20,
+    memory_type: str | None = None,
 ) -> list[SearchResult]:
     """Full-text search via FTS5."""
     safe_query = _sanitize_fts_query(query)
     if not safe_query:
         return []
 
+    memory_type_filter = "AND c.memory_type = ?" if memory_type is not None else ""
+    params: list[object] = [safe_query]
+    if memory_type is not None:
+        params.append(memory_type)
+    params.append(limit)
+
     cursor = await db.execute(
-        """
+        f"""
         SELECT c.*, fts.rank
         FROM claims_fts fts
         JOIN claims c ON c.rowid = fts.rowid
         WHERE claims_fts MATCH ?
           AND c.superseded_at IS NULL
+          {memory_type_filter}
         ORDER BY fts.rank
         LIMIT ?
         """,
-        (safe_query, limit),
+        params,
     )
     rows = await cursor.fetchall()
 
@@ -162,22 +172,29 @@ async def vector_search(
     *,
     context_id: str | None = None,
     limit: int = 20,
+    memory_type: str | None = None,
 ) -> list[SearchResult]:
     """Vector similarity search via sqlite-vec.
 
     Uses cosine distance — lower distance = more similar.
     """
+    memory_type_filter = "AND c.memory_type = ?" if memory_type is not None else ""
+    vec_params: list[object] = [json.dumps(embedding), limit]
+    if memory_type is not None:
+        vec_params.append(memory_type)
+
     cursor = await db.execute(
-        """
+        f"""
         SELECT ce.claim_id, ce.distance, c.*
         FROM claim_embeddings ce
         JOIN claims c ON c.id = ce.claim_id
         WHERE ce.embedding MATCH ?
           AND k = ?
           AND c.superseded_at IS NULL
+          {memory_type_filter}
         ORDER BY ce.distance
         """,
-        (json.dumps(embedding), limit),
+        vec_params,
     )
     rows = await cursor.fetchall()
 
@@ -206,6 +223,7 @@ async def graph_search(
     *,
     context_id: str | None = None,
     limit: int = 20,
+    memory_type: str | None = None,
 ) -> list[SearchResult]:
     """Graph-based search via entity traversal.
 
@@ -252,6 +270,12 @@ async def graph_search(
 
     # Find claims linked to these entities
     placeholders = ", ".join("?" for _ in all_entity_ids)
+    memory_type_filter = "AND c.memory_type = ?" if memory_type is not None else ""
+    graph_params: list[object] = [*all_entity_ids]
+    if memory_type is not None:
+        graph_params.append(memory_type)
+    graph_params.append(limit)
+
     cursor = await db.execute(
         f"""
         SELECT DISTINCT c.*
@@ -259,9 +283,10 @@ async def graph_search(
         JOIN claim_entities ce ON c.id = ce.claim_id
         WHERE ce.entity_id IN ({placeholders})
           AND c.superseded_at IS NULL
+          {memory_type_filter}
         LIMIT ?
         """,
-        (*all_entity_ids, limit),
+        graph_params,
     )
     rows = await cursor.fetchall()
 
@@ -351,6 +376,15 @@ def _row_to_claim(row: aiosqlite.Row) -> Claim:
     if metadata_raw:
         metadata = json.loads(str(metadata_raw))
 
+    # Parse procedural JSON columns
+    steps_raw = row["steps"] if "steps" in row.keys() else None
+    steps: list[str] | None = json.loads(str(steps_raw)) if steps_raw else None
+
+    source_ep_raw = row["source_episode_ids"] if "source_episode_ids" in row.keys() else None
+    source_episode_ids: list[str] = json.loads(str(source_ep_raw)) if source_ep_raw else []
+
+    last_used_raw = row["last_used"] if "last_used" in row.keys() else None
+
     return Claim(
         id=row["id"],
         text=row["text"],
@@ -371,4 +405,12 @@ def _row_to_claim(row: aiosqlite.Row) -> Claim:
         else None,
         superseded_by=row["superseded_by"],
         metadata=metadata,
+        memory_type=MemoryType(row["memory_type"]) if "memory_type" in row.keys() and row["memory_type"] else MemoryType.SEMANTIC,
+        trigger=row["trigger"] if "trigger" in row.keys() else None,
+        steps=steps,
+        termination_condition=row["termination_condition"] if "termination_condition" in row.keys() else None,
+        success_rate=float(row["success_rate"]) if "success_rate" in row.keys() and row["success_rate"] is not None else 0.5,
+        usage_count=int(row["usage_count"]) if "usage_count" in row.keys() and row["usage_count"] is not None else 0,
+        last_used=datetime.fromisoformat(str(last_used_raw)) if last_used_raw else None,
+        source_episode_ids=source_episode_ids,
     )
