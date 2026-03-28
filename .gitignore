@@ -17,3 +17,7 @@ res.sh
 benchmarks/locomo/.cache/
 benchmarks/locomo/results/
 /.superpowers
+*.db
+*.db-*
+
+/ref

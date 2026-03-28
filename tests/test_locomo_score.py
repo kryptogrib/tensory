@@ -1,6 +1,6 @@
 """Tests for LoCoMo benchmark scoring and data parsing."""
 
-from benchmarks.locomo.data import Conversation, QAItem, Turn, parse_conversation
+from benchmarks.locomo.data import parse_conversation
 
 
 def test_parse_conversation_extracts_turns() -> None:
@@ -86,7 +86,7 @@ def test_session_to_text() -> None:
     assert "1:00 pm on 1 Jan, 2023" in text
 
 
-from benchmarks.locomo.score import normalize_answer, compute_f1, BenchmarkResult
+from benchmarks.locomo.score import BenchmarkResult, compute_f1, normalize_answer
 
 
 def test_normalize_answer_strips_articles() -> None:
