@@ -123,3 +123,59 @@
     font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Fira Code', ui-monospace, monospace;
   }
 }
+
+/* Graph Explorer animations */
+@keyframes pulse-ring {
+  0% { transform: translate(-50%, -50%) scale(1); opacity: 0.6; }
+  100% { transform: translate(-50%, -50%) scale(1.8); opacity: 0; }
+}
+
+@keyframes breathe {
+  0%, 100% { transform: translate(-50%, -50%) scale(1); }
+  50% { transform: translate(-50%, -50%) scale(1.05); }
+}
+
+@keyframes glow-pulse {
+  0%, 100% { opacity: 0.7; }
+  50% { opacity: 1; }
+}
+
+@keyframes travel-dot {
+  0% { offset-distance: 0%; }
+  100% { offset-distance: 100%; }
+}
+
+/* React Flow theme overrides — Ember Terminal */
+.react-flow__attribution {
+  display: none !important;
+}
+
+.react-flow__background pattern circle {
+  fill: rgba(217, 119, 6, 0.08) !important;
+}
+
+.react-flow__controls {
+  display: none !important;
+}
+
+.react-flow__minimap {
+  display: none !important;
+}
+
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke: #d97706 !important;
+}
+
+.react-flow__node.selected {
+  box-shadow: none !important;
+}
+
+.react-flow__node:focus {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.react-flow__node:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
