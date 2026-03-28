@@ -129,18 +129,13 @@ function ExpandedRow({
       {detail && detail.waypoints.length > 0 && (
         <div>
           <span className="uppercase tracking-wider" style={{ color: "#6b6560" }}>
-            linked claims
+            linked claims ({detail.waypoints.length})
           </span>
           <ul className="mt-1 space-y-0.5">
             {detail.waypoints.map((w) => (
-              <li
-                key={w}
-                title={`Claim ID: ${w}`}
-                className="cursor-help"
-                style={{ color: "#8a7e72" }}
-              >
+              <li key={w} style={{ color: "#8a7e72" }}>
                 <span style={{ color: "#d97706", opacity: 0.5 }}>⟶</span>{" "}
-                {w.slice(0, 12)}…
+                <span className="text-[0.6rem]" style={{ color: "#6b6560", fontFamily: "monospace" }}>{w}</span>
               </li>
             ))}
           </ul>
@@ -153,32 +148,34 @@ function ExpandedRow({
           <span className="uppercase tracking-wider" style={{ color: "#6b6560" }}>
             relations
           </span>
-          <ul className="mt-1 space-y-1">
+          <ul className="mt-1 space-y-1.5">
             {detail.related_entities.map((r, i) => (
-              <li
-                key={i}
-                title={r.fact || `${r.from_entity} ${r.rel_type} ${r.to_entity}`}
-                className="cursor-help"
-                style={{ color: "#8a7e72" }}
-              >
-                <span style={{ color: "#f5e6d3" }}>{r.from_entity}</span>
-                <span style={{ color: "#4a4540" }}>{" → "}</span>
-                <span
-                  className="rounded px-1 py-0.5 text-[0.6rem]"
-                  style={{
-                    background: "rgba(234, 88, 12, 0.08)",
-                    color: "#ea580c",
-                    border: "1px solid rgba(234, 88, 12, 0.12)",
-                  }}
-                >
-                  {r.rel_type}
-                </span>
-                <span style={{ color: "#4a4540" }}>{" → "}</span>
-                <span style={{ color: "#f5e6d3" }}>{r.to_entity}</span>
-                {r.confidence < 1.0 && (
-                  <span className="ml-2 text-[0.55rem]" style={{ color: "#4a4540" }}>
-                    conf: {r.confidence.toFixed(2)}
+              <li key={i}>
+                <div style={{ color: "#8a7e72" }}>
+                  <span style={{ color: "#f5e6d3" }}>{r.from_entity}</span>
+                  <span style={{ color: "#4a4540" }}>{" → "}</span>
+                  <span
+                    className="rounded px-1 py-0.5 text-[0.6rem]"
+                    style={{
+                      background: "rgba(234, 88, 12, 0.08)",
+                      color: "#ea580c",
+                      border: "1px solid rgba(234, 88, 12, 0.12)",
+                    }}
+                  >
+                    {r.rel_type}
                   </span>
+                  <span style={{ color: "#4a4540" }}>{" → "}</span>
+                  <span style={{ color: "#f5e6d3" }}>{r.to_entity}</span>
+                  {r.confidence < 1.0 && (
+                    <span className="ml-2 text-[0.55rem]" style={{ color: "#4a4540" }}>
+                      conf: {r.confidence.toFixed(2)}
+                    </span>
+                  )}
+                </div>
+                {r.fact && (
+                  <div className="mt-0.5 text-[0.6rem]" style={{ color: "#6b6560", paddingLeft: 8 }}>
+                    &quot;{r.fact}&quot;
+                  </div>
                 )}
               </li>
             ))}
