@@ -31,7 +31,7 @@ class FakeHybridLLM:
             return json.dumps({
                 "claims": [
                     {
-                        "text": f"Claim from: {prompt[:50]}",
+                        "text": f"Claim #{self.call_count} from extraction call",
                         "type": "fact",
                         "entities": ["Bitcoin"],
                         "temporal": None,
@@ -125,3 +125,88 @@ async def test_extract_long_fallback_on_segmentation_failure() -> None:
     claims, relations = await extract_long(text, fail_then_extract, max_segments=3)
 
     assert len(claims) >= 1
+
+
+from tensory import Claim, Tensory
+
+
+@pytest.fixture
+async def hybrid_store() -> Tensory:
+    """Tensory with fake LLM for hybrid extraction tests."""
+    llm = FakeHybridLLM()
+    s = await Tensory.create(":memory:", llm=llm)
+    yield s  # type: ignore[misc]
+    await s.close()
+
+
+async def test_add_short_text_uses_single_call(hybrid_store: Tensory) -> None:
+    """Short text (< threshold) uses 1 LLM call as before."""
+    result = await hybrid_store.add("Short text about Bitcoin.", source="test")
+    assert len(result.claims) >= 1
+
+
+async def test_add_long_text_uses_segmentation(hybrid_store: Tensory) -> None:
+    """Long text (> threshold) uses topic segmentation."""
+    long_text = ("Bitcoin price reached $100K. " * 200 +
+                 "\n\n" +
+                 "EigenLayer expanded to 60 engineers. " * 200)
+    result = await hybrid_store.add(
+        long_text,
+        source="test",
+        chunk_threshold=100,
+    )
+    assert len(result.claims) >= 2
+
+
+async def test_add_with_explicit_threshold(hybrid_store: Tensory) -> None:
+    """chunk_threshold parameter controls when segmentation kicks in."""
+    result = await hybrid_store.add(
+        "Some text.",
+        source="test",
+        chunk_threshold=999999,
+    )
+    assert len(result.claims) >= 1
+
+
+async def test_add_long_stores_single_episode(hybrid_store: Tensory) -> None:
+    """Long text segmentation still stores ONE episode with full text."""
+    long_text = "Word " * 500 + "\n\n" + "Another " * 500
+    result = await hybrid_store.add(
+        long_text,
+        source="test",
+        chunk_threshold=100,
+    )
+
+    cursor = await hybrid_store._db.execute(
+        "SELECT raw_text FROM episodes WHERE id = ?", (result.episode_id,)
+    )
+    row = await cursor.fetchone()
+    assert row is not None
+    assert row[0] == long_text
+
+
+async def test_add_long_graceful_on_partial_failure(hybrid_store: Tensory) -> None:
+    """If extraction fails mid-way, still returns what succeeded."""
+    call_count = 0
+
+    async def fail_on_second(prompt: str) -> str:
+        nonlocal call_count
+        call_count += 1
+        if "thematic sections" in prompt:
+            return json.dumps({
+                "sections": [
+                    {"title": "S1", "text": "Good section."},
+                    {"title": "S2", "text": "Bad section."},
+                ]
+            })
+        if call_count == 3:
+            raise RuntimeError("LLM died")
+        return json.dumps({
+            "claims": [{"text": "A claim", "type": "fact", "entities": [], "confidence": 0.9, "relevance": 1.0}],
+            "relations": [],
+        })
+
+    store = await Tensory.create(":memory:", llm=fail_on_second)
+    result = await store.add("Long " * 500 + "\n\n" + "Text " * 500, source="test", chunk_threshold=100)
+    assert isinstance(result.claims, list)
+    await store.close()

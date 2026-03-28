@@ -16,7 +16,7 @@ import uuid
 from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import aiosqlite
 
@@ -39,7 +39,13 @@ from tensory.models import (
 )
 from tensory.prompts import CARA_OPINION_FORMATION, OBSERVATION_SYNTHESIS
 from tensory.schema import create_schema, migrate
-from tensory.search import hybrid_search, load_claim_entities, vector_search
+from tensory.search import (
+    fisher_rerank,
+    hybrid_search,
+    load_claim_entities,
+    should_rerank,
+    vector_search,
+)
 from tensory.temporal import (
     apply_decay as _apply_decay,
 )
@@ -508,11 +514,14 @@ class Tensory:
         limit: int = 10,
         weights: dict[str, float] | None = None,
         memory_type: MemoryType | None = None,
+        metric: Literal["cosine", "fisher", "auto"] = "auto",
+        max_result_tokens: int | None = None,
     ) -> list[SearchResult]:
         """Hybrid search across vector, FTS, and graph channels.
 
-        Pipeline: embed query → parallel search → RRF merge → priming
-        boost → reinforce on access.
+        Pipeline: embed query → parallel search → RRF merge
+        → Fisher rerank (if needed) → priming boost → reinforce on access
+        → token budget trim.
 
         Args:
             query: Search query string.
@@ -520,6 +529,11 @@ class Tensory:
             limit: Maximum results to return.
             weights: Channel weights for RRF (default: vector=0.4, fts=0.3, graph=0.3).
             memory_type: Optional filter by memory type (semantic, procedural, episodic).
+            metric: Similarity metric for ranking. "cosine" = standard,
+                "fisher" = always rerank with Fisher-Rao, "auto" = rerank
+                only when cosine scores are too close to discriminate.
+            max_result_tokens: Maximum approximate token count across all
+                returned results (word-count estimate × 1.3). None = no limit.
         """
         # Embed the query
         query_embedding: list[float] | None = None
@@ -540,6 +554,15 @@ class Tensory:
             weights=weights,
             memory_type=memory_type.value if memory_type else None,
         )
+
+        # ── Fisher rerank (if needed) ────────────────────────────────────
+        if query_embedding and (
+            metric == "fisher"
+            or (metric == "auto" and should_rerank(results))
+        ):
+            results = await fisher_rerank(
+                query_embedding, results, self._db, top_k=min(20, len(results))
+            )
 
         # ── Load entities for results (needed for priming) ────────────────
         for result in results:
@@ -589,6 +612,20 @@ class Tensory:
                     result.relevance = float(rel_row[0])
 
         await self._db.commit()
+
+        # ── Token budget trim ────────────────────────────────────────────
+        if max_result_tokens is not None:
+            trimmed: list[SearchResult] = []
+            token_count = 0
+            for result in results:
+                # Approximate: 1 word ≈ 1.3 tokens
+                claim_tokens = int(len(result.claim.text.split()) * 1.3)
+                if token_count + claim_tokens > max_result_tokens:
+                    break
+                trimmed.append(result)
+                token_count += claim_tokens
+            results = trimmed
+
         return results
 
     async def search_procedural(
@@ -872,6 +909,7 @@ class Tensory:
         source: str = "",
         source_url: str | None = None,
         context: Context | None = None,
+        chunk_threshold: int | None = None,
     ) -> IngestResult:
         """Ingest raw text: store episode → LLM extract → add_claims.
 
@@ -882,6 +920,8 @@ class Tensory:
             source: Source identifier (e.g. "reddit:r/defi").
             source_url: Full URL of the source.
             context: Research goal for context-aware extraction.
+            chunk_threshold: Token count above which long-text segmentation is
+                used. Defaults to 3000. Pass a large number to disable.
         """
         if not self._llm:
             msg = "LLM required for add(). Use add_claims() for pre-extracted claims."
@@ -907,8 +947,23 @@ class Tensory:
         )
         await self._db.commit()
 
-        # Extract claims via LLM
-        claims, relations = await extract_claims(text, self._llm, context=context)
+        # Threshold dispatch: short text → 1 call, long text → segmentation
+        from tensory.chunking import compute_max_segments, estimate_tokens
+        from tensory.extract import extract_long
+
+        threshold = chunk_threshold if chunk_threshold is not None else 3000
+        token_count = estimate_tokens(text)
+
+        if token_count > threshold:
+            max_segs = compute_max_segments(token_count)
+            claims, relations = await extract_long(
+                text,
+                self._llm,
+                max_segments=max_segs,
+                context=context,
+            )
+        else:
+            claims, relations = await extract_claims(text, self._llm, context=context)
 
         # Store relations in graph
         for rel in relations:
