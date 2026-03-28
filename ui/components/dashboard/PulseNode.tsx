@@ -54,16 +54,34 @@ function PulseNodeComponent({ data, selected }: NodeProps) {
         transition: "transform 0.2s ease",
       }}
     >
-      {/* Hidden handles for React Flow edge routing */}
+      {/* Hidden handles at CENTER of node — edges connect to center */}
       <Handle
         type="target"
         position={Position.Top}
-        style={{ opacity: 0, width: 1, height: 1, border: "none", background: "transparent" }}
+        style={{
+          opacity: 0,
+          width: 1,
+          height: 1,
+          border: "none",
+          background: "transparent",
+          top: "50%",
+          left: "50%",
+          transform: "translate(-50%, -50%)",
+        }}
       />
       <Handle
         type="source"
         position={Position.Bottom}
-        style={{ opacity: 0, width: 1, height: 1, border: "none", background: "transparent" }}
+        style={{
+          opacity: 0,
+          width: 1,
+          height: 1,
+          border: "none",
+          background: "transparent",
+          top: "50%",
+          left: "50%",
+          transform: "translate(-50%, -50%)",
+        }}
       />
 
       {/* Node visual container */}
