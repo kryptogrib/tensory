@@ -309,3 +309,71 @@ async def test_search_procedural_ranks_by_success_rate(proc_store: Tensory) -> N
     assert len(results) >= 2
     # Higher success_rate should rank first
     assert results[0].claim.success_rate >= results[1].claim.success_rate
+
+
+# ── Feedback tests ───────────────────────────────────────────────────────
+
+
+async def test_update_skill_feedback_positive(store: Tensory) -> None:
+    """Positive feedback increases success_rate and usage_count."""
+    result = await store.add_claims([
+        Claim(
+            text="Skill: check price",
+            memory_type=MemoryType.PROCEDURAL,
+            trigger="check",
+            steps=["step1"],
+            success_rate=0.5,
+            usage_count=4,
+        ),
+    ])
+    skill_id = result.claims[0].id
+
+    updated = await store.update_skill_feedback(skill_id, outcome=True)
+    assert updated is not None
+    assert updated.success_rate > 0.5
+    assert updated.usage_count == 5
+
+
+async def test_update_skill_feedback_negative(store: Tensory) -> None:
+    """Negative feedback decreases success_rate."""
+    result = await store.add_claims([
+        Claim(
+            text="Skill: bad method",
+            memory_type=MemoryType.PROCEDURAL,
+            trigger="bad",
+            steps=["step1"],
+            success_rate=0.5,
+            usage_count=4,
+        ),
+    ])
+    skill_id = result.claims[0].id
+
+    updated = await store.update_skill_feedback(skill_id, outcome=False)
+    assert updated is not None
+    assert updated.success_rate < 0.5
+    assert updated.usage_count == 5
+
+
+async def test_update_skill_feedback_deprecates_low_success(store: Tensory) -> None:
+    """Skills with success_rate < 0.3 after 5+ uses get superseded."""
+    result = await store.add_claims([
+        Claim(
+            text="Skill: failing method",
+            memory_type=MemoryType.PROCEDURAL,
+            trigger="fail",
+            steps=["step1"],
+            success_rate=0.25,
+            usage_count=5,
+        ),
+    ])
+    skill_id = result.claims[0].id
+
+    updated = await store.update_skill_feedback(skill_id, outcome=False)
+    assert updated is not None
+    assert updated.superseded_at is not None  # deprecated
+
+
+async def test_update_skill_feedback_nonexistent_returns_none(store: Tensory) -> None:
+    """Feedback on non-existent skill returns None."""
+    result = await store.update_skill_feedback("nonexistent_id", outcome=True)
+    assert result is None

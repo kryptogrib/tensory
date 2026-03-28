@@ -974,6 +974,77 @@ class Tensory:
             skills=stored_skills,
         )
 
+    # ── update_skill_feedback() — EMA success_rate + auto-deprecate ───────
+
+    async def update_skill_feedback(
+        self,
+        skill_id: str,
+        *,
+        outcome: bool,
+    ) -> Claim | None:
+        """Update a procedural skill based on usage outcome.
+
+        LLM-free feedback loop (ProcMEM score-based maintenance):
+        - success_rate = exponential moving average
+        - Auto-deprecate if success_rate < 0.3 after 5+ uses
+
+        Args:
+            skill_id: ID of the procedural claim to update.
+            outcome: True = skill worked, False = skill failed.
+
+        Returns:
+            Updated Claim, or None if skill not found.
+        """
+        cursor = await self._db.execute(
+            "SELECT * FROM claims WHERE id = ? AND memory_type = 'procedural'",
+            (skill_id,),
+        )
+        row = await cursor.fetchone()
+        if row is None:
+            return None
+
+        from tensory.search import _row_to_claim
+
+        claim = _row_to_claim(row)
+
+        # Exponential moving average for success_rate
+        old_rate = claim.success_rate
+        old_count = claim.usage_count
+        reward = 1.0 if outcome else 0.0
+        new_rate = (old_rate * old_count + reward) / (old_count + 1)
+        new_count = old_count + 1
+
+        claim.success_rate = round(new_rate, 4)
+        claim.usage_count = new_count
+
+        # Update DB
+        now = datetime.now(UTC).isoformat()
+        await self._db.execute(
+            """UPDATE claims
+               SET success_rate = ?, usage_count = ?, last_accessed = ?
+               WHERE id = ?""",
+            (claim.success_rate, claim.usage_count, now, skill_id),
+        )
+
+        # Auto-deprecate if consistently failing (ProcMEM maintenance)
+        if claim.success_rate < 0.3 and claim.usage_count >= 5:
+            claim.superseded_at = datetime.now(UTC)
+            await self._db.execute(
+                """UPDATE claims
+                   SET superseded_at = ?, salience = salience * 0.1
+                   WHERE id = ?""",
+                (claim.superseded_at.isoformat(), skill_id),
+            )
+            logger.info(
+                "Deprecated skill %s (success_rate=%.2f, usage=%d)",
+                skill_id[:8],
+                claim.success_rate,
+                claim.usage_count,
+            )
+
+        await self._db.commit()
+        return claim
+
     # ── reevaluate() — re-extract from old episode with new context ───────
 
     async def reevaluate(
