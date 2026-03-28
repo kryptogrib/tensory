@@ -145,7 +145,16 @@ threshold=0.05, temperature=10.0: overall F1=0.XXXX, multi-hop=0.XXXX
 
 ---
 
-## 4. Next Steps (after validation)
+## 4. Dashboard UI — Next Features
+
+- [ ] **Timeline View** — slider showing knowledge evolution over time, superseding events, salience decay curves. No competitor has this (see `docs/UI-competitor-research.md`). Tensory has all the data: `valid_from/valid_to`, `superseded_at`, `created_at`, exponential decay. Would be a standout feature.
+- [ ] **Collision Detection UI** — show when two claims collide, resolution type (supersede/confirm/contradict), confidence scores. Data exists in `collisions.py`, needs persisting + UI.
+- [ ] **Salience Decay Dashboard** — exponential decay curves per claim/entity, "endangered memories" alerts, visual health indicators.
+- [ ] **Procedural Memory View** — skill cards with trigger/steps/termination, success rate bars, feedback history. No competitor has procedural memory UI.
+- [ ] **Reasoning Provenance** — when searching, highlight the graph subgraph that contributed to results (like Cognee's reasoning subgraph).
+- [ ] **Playground Mode** — Zep-style "add data → observe graph change → see downstream effect" loop for demos.
+
+## 5. Next Steps (after validation)
 
 - [ ] Add `--metric` argument to benchmark CLI (`benchmarks/locomo/run.py`)
 - [ ] Graduated ramp: `blend = min(claim.usage_count / 10, 1.0)` — Fisher
