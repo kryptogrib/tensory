@@ -685,11 +685,25 @@ class Tensory:
             new_opinions.extend(opinions)
             new_observations.extend(llm_observations)
 
+        # ── Step 6: Procedural skill evolution ────────────────────────
+        evolved_skills: list[Claim] = []
+        procedural_claims = [c for c in claims if c.memory_type == MemoryType.PROCEDURAL]
+        for skill in procedural_claims:
+            # Check if any collision involves this skill
+            skill_collisions = [
+                col for col in all_collisions
+                if col.claim_a.id == skill.id or col.claim_b.id == skill.id
+            ]
+            if skill_collisions:
+                # Collision with a procedural skill = potential skill update
+                evolved_skills.append(skill)
+
         return ReflectResult(
             updated_claims=updated_claims,
             new_observations=new_observations,
             new_opinions=new_opinions,
             collisions=all_collisions,
+            evolved_skills=evolved_skills,
         )
 
     async def _cara_reflect(

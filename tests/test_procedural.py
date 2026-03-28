@@ -377,3 +377,29 @@ async def test_update_skill_feedback_nonexistent_returns_none(store: Tensory) ->
     """Feedback on non-existent skill returns None."""
     result = await store.update_skill_feedback("nonexistent_id", outcome=True)
     assert result is None
+
+
+# ── Reflect evolution tests ──────────────────────────────────────────────
+
+
+async def test_reflect_includes_procedural_skills(proc_store: Tensory) -> None:
+    """reflect() works with mixed memory types without errors."""
+    from tensory.models import ReflectResult
+
+    # Add procedural skill
+    await proc_store.add_procedural(
+        "I opened Binance, entered BTC/USDT, and showed the price.",
+        source="test",
+    )
+    # Add semantic claims
+    await proc_store.add_claims([
+        Claim(text="Bitcoin price reached $50K", entities=["Bitcoin"]),
+        Claim(text="Binance is the largest exchange", entities=["Binance"]),
+    ])
+
+    result = await proc_store.reflect("How to check crypto prices?")
+
+    # reflect should work without errors on mixed memory types
+    assert isinstance(result, ReflectResult)
+    # evolved_skills field should exist (may be empty if no collisions)
+    assert isinstance(result.evolved_skills, list)

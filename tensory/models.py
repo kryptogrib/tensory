@@ -196,13 +196,14 @@ class ReflectResult(BaseModel):
 
     Contains updated claims (salience changed), new observations
     (synthesized from patterns), new opinions (CARA-generated),
-    and detected collisions.
+    detected collisions, and evolved procedural skills.
     """
 
-    updated_claims: list[Claim] = []
-    new_observations: list[Claim] = []
-    new_opinions: list[Claim] = []
-    collisions: list[Collision] = []
+    updated_claims: list[Claim] = Field(default_factory=list)
+    new_observations: list[Claim] = Field(default_factory=list)
+    new_opinions: list[Claim] = Field(default_factory=list)
+    collisions: list[Collision] = Field(default_factory=list)
+    evolved_skills: list[Claim] = Field(default_factory=list)
 
 
 class ProceduralResult(BaseModel):
