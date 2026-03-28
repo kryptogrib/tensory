@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useState, useMemo } from "react";
-import { getBezierPath, type EdgeProps } from "@xyflow/react";
+import { getStraightPath, type EdgeProps } from "@xyflow/react";
 
 export type SalienceEdgeData = {
   relType: string;
@@ -11,15 +11,15 @@ export type SalienceEdgeData = {
 
 function getEdgeStyle(confidence: number) {
   if (confidence > 0.7) {
-    return { strokeDasharray: undefined, strokeWidth: 1.5, opacity: 0.25, color: "#d97706" };
+    return { strokeDasharray: undefined, strokeWidth: 1.8, opacity: 0.3, color: "#d97706" };
   }
   if (confidence >= 0.4) {
-    return { strokeDasharray: "6 3", strokeWidth: 0.8, opacity: 0.12, color: "#d97706" };
+    return { strokeDasharray: "8 4", strokeWidth: 1, opacity: 0.15, color: "#d97706" };
   }
   if (confidence >= 0.2) {
-    return { strokeDasharray: "3 5", strokeWidth: 0.4, opacity: 0.05, color: "#78716c" };
+    return { strokeDasharray: "4 6", strokeWidth: 0.6, opacity: 0.08, color: "#b45309" };
   }
-  return { strokeDasharray: "2 7", strokeWidth: 0.25, opacity: 0.03, color: "#78716c" };
+  return { strokeDasharray: "2 8", strokeWidth: 0.4, opacity: 0.04, color: "#78716c" };
 }
 
 function SalienceEdgeComponent({
@@ -28,26 +28,37 @@ function SalienceEdgeComponent({
   sourceY,
   targetX,
   targetY,
-  sourcePosition,
-  targetPosition,
   data,
   selected,
+  style: externalStyle,
 }: EdgeProps) {
   const [hovered, setHovered] = useState(false);
   const edgeData = data as unknown as SalienceEdgeData | undefined;
   const confidence = edgeData?.confidence ?? 0.5;
   const relType = edgeData?.relType ?? "";
 
-  const style = useMemo(() => getEdgeStyle(confidence), [confidence]);
+  const edgeStyle = useMemo(() => getEdgeStyle(confidence), [confidence]);
 
-  const [edgePath, labelX, labelY] = getBezierPath({
+  const [edgePath, labelX, labelY] = getStraightPath({
     sourceX,
     sourceY,
     targetX,
     targetY,
-    sourcePosition,
-    targetPosition,
   });
+
+  // Merge external opacity from selection highlighting
+  const externalOpacity =
+    externalStyle && typeof externalStyle === "object" && "opacity" in externalStyle
+      ? (externalStyle as { opacity: number }).opacity
+      : undefined;
+
+  const finalOpacity = externalOpacity ?? (
+    selected
+      ? Math.min(edgeStyle.opacity * 3, 0.7)
+      : hovered
+        ? Math.min(edgeStyle.opacity * 2.5, 0.5)
+        : edgeStyle.opacity
+  );
 
   const showTravelDot = confidence > 0.6;
 
@@ -61,7 +72,7 @@ function SalienceEdgeComponent({
         d={edgePath}
         fill="none"
         stroke="transparent"
-        strokeWidth={12}
+        strokeWidth={14}
         style={{ cursor: "pointer" }}
       />
 
@@ -70,37 +81,38 @@ function SalienceEdgeComponent({
         id={id}
         d={edgePath}
         fill="none"
-        stroke={selected ? "#d97706" : style.color}
-        strokeWidth={selected ? style.strokeWidth * 1.5 : style.strokeWidth}
-        strokeDasharray={style.strokeDasharray}
-        opacity={selected ? Math.min(style.opacity * 3, 0.6) : hovered ? Math.min(style.opacity * 2, 0.5) : style.opacity}
-        style={{ transition: "opacity 0.2s ease, stroke-width 0.2s ease" }}
+        stroke={selected || hovered ? "#d97706" : edgeStyle.color}
+        strokeWidth={hovered ? edgeStyle.strokeWidth * 1.5 : edgeStyle.strokeWidth}
+        strokeDasharray={edgeStyle.strokeDasharray}
+        opacity={finalOpacity}
+        strokeLinecap="round"
+        style={{ transition: "opacity 0.3s ease, stroke-width 0.2s ease" }}
       />
 
-      {/* Traveling impulse dot */}
+      {/* Traveling impulse dot for strong edges */}
       {showTravelDot && (
         <circle
-          r={1.5}
-          fill="#d97706"
+          r={2}
+          fill="#fbbf24"
           opacity={0.6}
           style={{
             offsetPath: `path('${edgePath}')`,
-            animation: "travel-dot 3s linear infinite",
+            animation: `travel-dot ${2.5 + Math.random() * 2}s linear infinite`,
           }}
         />
       )}
 
-      {/* Hover label */}
+      {/* Hover tooltip */}
       {hovered && relType && (
         <g>
           <rect
-            x={labelX - 40}
-            y={labelY - 10}
-            width={80}
-            height={20}
-            rx={3}
-            fill="rgba(10, 9, 8, 0.9)"
-            stroke="rgba(217, 119, 6, 0.15)"
+            x={labelX - 45}
+            y={labelY - 11}
+            width={90}
+            height={22}
+            rx={4}
+            fill="rgba(10, 9, 8, 0.92)"
+            stroke="rgba(217, 119, 6, 0.2)"
             strokeWidth={0.5}
           />
           <text
@@ -108,9 +120,10 @@ function SalienceEdgeComponent({
             y={labelY + 3}
             textAnchor="middle"
             style={{
-              fontSize: 8,
+              fontSize: 9,
               fontFamily: "'SF Mono', Monaco, monospace",
-              fill: "#8a7e72",
+              fill: "#d97706",
+              fontWeight: 500,
             }}
           >
             {relType}

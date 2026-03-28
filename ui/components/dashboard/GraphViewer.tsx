@@ -1,21 +1,30 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ReactFlow,
   Background,
   BackgroundVariant,
-  applyNodeChanges,
-  applyEdgeChanges,
   type Node,
   type Edge,
-  type NodeChange,
-  type EdgeChange,
   type NodeMouseHandler,
+  type OnNodeDrag,
   ReactFlowProvider,
+  useReactFlow,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useRouter } from "next/navigation";
+import {
+  forceSimulation,
+  forceLink,
+  forceManyBody,
+  forceCenter,
+  forceCollide,
+  forceX,
+  forceY,
+  type SimulationNodeDatum,
+  type SimulationLinkDatum,
+} from "d3-force";
 
 import { useGraphEntities, useGraphEdges } from "@/hooks/use-graph";
 import type { EntityNode, EdgeData } from "@/lib/types";
@@ -27,181 +36,86 @@ import { ZoomControls } from "./ZoomControls";
 const nodeTypes = { pulse: PulseNode };
 const edgeTypes = { salience: SalienceEdge };
 
-/* ─── Fruchterman-Reingold Force-Directed Layout ─────────────────────
+/* ─── d3-force Live Physics ──────────────────────────────────────────
  *
- * Classic algorithm for aesthetically pleasing graphs.
+ * Uses d3-force simulation running in real time:
+ *   - forceManyBody: nodes repel each other (electrostatic)
+ *   - forceLink: edges act as springs pulling connected nodes
+ *   - forceCenter: keeps the graph centered
+ *   - forceCollide: prevents node overlap
+ *   - forceX/Y: gentle gravity toward center
  *
- * Forces:
- *   Repulsive (all pairs):  Fr(d) = -k² / d        (Coulomb-like)
- *   Attractive (edges):     Fa(d) =  d² / k         (spring / Hooke)
- *   Gravity (to center):    Fg    = -strength * pos  (keeps graph centered)
- *
- * k = C * sqrt(area / |V|)  — ideal spring length
- * Temperature cools each iteration to converge.
+ * Dragging a node pins it (fx/fy), releasing unpins it.
+ * The simulation runs continuously via requestAnimationFrame.
  * ──────────────────────────────────────────────────────────────────── */
 
-interface Vec2 {
-  x: number;
-  y: number;
+interface SimNode extends SimulationNodeDatum {
+  id: string;
+  data: {
+    label: string;
+    mentionCount: number;
+    claimCount: number;
+    entityType: string | null;
+  };
 }
 
-function forceDirectedLayout(
+function useForceLayout(
   entities: EntityNode[],
-  edgeList: EdgeData[],
-): { positions: Map<string, Vec2> } {
-  const n = entities.length;
-  if (n === 0) return { positions: new Map() };
+  edgeData: EdgeData[],
+) {
+  const [nodes, setNodes] = useState<Node[]>([]);
+  const [edges, setEdges] = useState<Edge[]>([]);
+  const simulationRef = useRef<ReturnType<typeof forceSimulation<SimNode>> | null>(null);
+  const animFrameRef = useRef<number>(0);
+  const simNodesRef = useRef<SimNode[]>([]);
 
-  // Index entities by name for edge resolution
-  const idByName = new Map<string, number>();
-  entities.forEach((e, i) => idByName.set(e.name, i));
-
-  // Resolve edges to index pairs
-  const links: [number, number][] = [];
-  for (const edge of edgeList) {
-    const s = idByName.get(edge.from_entity);
-    const t = idByName.get(edge.to_entity);
-    if (s !== undefined && t !== undefined && s !== t) {
-      links.push([s, t]);
-    }
-  }
-
-  // Build adjacency set for degree calculation
-  const degree = new Array<number>(n).fill(0);
-  for (const [s, t] of links) {
-    degree[s]++;
-    degree[t]++;
-  }
-
-  // --- Parameters ---
-  const AREA = 800 * 800;
-  const k = 1.2 * Math.sqrt(AREA / Math.max(n, 1)); // ideal edge length
-  const ITERATIONS = 120;
-  const GRAVITY = 0.08;
-  const INITIAL_TEMP = k * 2;
-  const MIN_DIST = 1; // avoid division by zero
-
-  // --- Initialize positions in a circle (better starting point than random) ---
-  const pos: Vec2[] = entities.map((_, i) => {
-    const angle = (i / n) * 2 * Math.PI;
-    const r = k * 1.5;
-    return { x: Math.cos(angle) * r, y: Math.sin(angle) * r };
-  });
-
-  // --- Simulate ---
-  let temp = INITIAL_TEMP;
-
-  for (let iter = 0; iter < ITERATIONS; iter++) {
-    const disp: Vec2[] = pos.map(() => ({ x: 0, y: 0 }));
-
-    // Repulsive forces (all pairs) — O(n²), fine for <200 nodes
-    for (let i = 0; i < n; i++) {
-      for (let j = i + 1; j < n; j++) {
-        const dx = pos[i].x - pos[j].x;
-        const dy = pos[i].y - pos[j].y;
-        const dist = Math.max(Math.sqrt(dx * dx + dy * dy), MIN_DIST);
-        const force = (k * k) / dist; // Fr = k² / d
-        const fx = (dx / dist) * force;
-        const fy = (dy / dist) * force;
-        disp[i].x += fx;
-        disp[i].y += fy;
-        disp[j].x -= fx;
-        disp[j].y -= fy;
-      }
+  useEffect(() => {
+    if (!entities.length) {
+      setNodes([]);
+      setEdges([]);
+      return;
     }
 
-    // Attractive forces (edges only) — spring pulls connected nodes together
-    for (const [s, t] of links) {
-      const dx = pos[s].x - pos[t].x;
-      const dy = pos[s].y - pos[t].y;
-      const dist = Math.max(Math.sqrt(dx * dx + dy * dy), MIN_DIST);
-      const force = (dist * dist) / k; // Fa = d² / k
-      const fx = (dx / dist) * force;
-      const fy = (dy / dist) * force;
-      disp[s].x -= fx;
-      disp[s].y -= fy;
-      disp[t].x += fx;
-      disp[t].y += fy;
-    }
+    // Build name → id map
+    const idByName = new Map<string, string>();
+    for (const e of entities) idByName.set(e.name, e.id);
 
-    // Gravity — pull toward center to prevent drift
-    for (let i = 0; i < n; i++) {
-      disp[i].x -= pos[i].x * GRAVITY;
-      disp[i].y -= pos[i].y * GRAVITY;
-    }
-
-    // Apply displacement with temperature limiting
-    for (let i = 0; i < n; i++) {
-      const dx = disp[i].x;
-      const dy = disp[i].y;
-      const len = Math.max(Math.sqrt(dx * dx + dy * dy), MIN_DIST);
-      const capped = Math.min(len, temp);
-      pos[i].x += (dx / len) * capped;
-      pos[i].y += (dy / len) * capped;
-    }
-
-    // Cool down
-    temp *= 1 - iter / ITERATIONS; // linear cooling
-  }
-
-  // --- Scale positions to reasonable viewport coordinates ---
-  // Find bounding box
-  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-  for (const p of pos) {
-    minX = Math.min(minX, p.x);
-    maxX = Math.max(maxX, p.x);
-    minY = Math.min(minY, p.y);
-    maxY = Math.max(maxY, p.y);
-  }
-  const rangeX = maxX - minX || 1;
-  const rangeY = maxY - minY || 1;
-  const TARGET = Math.max(400, n * 60); // scale with node count
-
-  const positions = new Map<string, Vec2>();
-  entities.forEach((entity, i) => {
-    positions.set(entity.id, {
-      x: ((pos[i].x - minX) / rangeX - 0.5) * TARGET,
-      y: ((pos[i].y - minY) / rangeY - 0.5) * TARGET,
-    });
-  });
-
-  return { positions };
-}
-
-function layoutNodes(entities: EntityNode[], edges: EdgeData[]): Node[] {
-  if (entities.length === 0) return [];
-
-  const { positions } = forceDirectedLayout(entities, edges);
-
-  return entities.map((entity) => {
-    const pos = positions.get(entity.id) ?? { x: 0, y: 0 };
-    return {
-      id: entity.id,
-      type: "pulse",
-      position: { x: pos.x, y: pos.y },
-      data: {
-        label: entity.name,
-        mentionCount: entity.mention_count,
-        claimCount: 0,
-        entityType: entity.type,
-      },
-    };
-  });
-}
-
-function buildEdges(edges: EdgeData[], entities: EntityNode[]): Edge[] {
-  const entityIdByName = new Map<string, string>();
-  for (const e of entities) {
-    entityIdByName.set(e.name, e.id);
-  }
-
-  return edges
-    .map((edge, i) => {
-      const sourceId = entityIdByName.get(edge.from_entity);
-      const targetId = entityIdByName.get(edge.to_entity);
-      if (!sourceId || !targetId) return null;
+    // Create simulation nodes
+    const simNodes: SimNode[] = entities.map((entity, i) => {
+      // Initialize in a circle for faster convergence
+      const angle = (i / entities.length) * 2 * Math.PI;
+      const r = 150 + Math.random() * 50;
       return {
-        id: `e-${i}-${sourceId}-${targetId}`,
+        id: entity.id,
+        x: Math.cos(angle) * r,
+        y: Math.sin(angle) * r,
+        data: {
+          label: entity.name,
+          mentionCount: entity.mention_count,
+          claimCount: 0,
+          entityType: entity.type,
+        },
+      };
+    });
+    simNodesRef.current = simNodes;
+
+    // Create simulation links
+    const simLinks: SimulationLinkDatum<SimNode>[] = [];
+    const rfEdges: Edge[] = [];
+    let edgeIdx = 0;
+
+    for (const edge of edgeData) {
+      const sourceId = idByName.get(edge.from_entity);
+      const targetId = idByName.get(edge.to_entity);
+      if (!sourceId || !targetId || sourceId === targetId) continue;
+
+      const source = simNodes.find((n) => n.id === sourceId);
+      const target = simNodes.find((n) => n.id === targetId);
+      if (!source || !target) continue;
+
+      simLinks.push({ source, target });
+      rfEdges.push({
+        id: `e-${edgeIdx++}-${sourceId}-${targetId}`,
         source: sourceId,
         target: targetId,
         type: "salience",
@@ -210,10 +124,95 @@ function buildEdges(edges: EdgeData[], entities: EntityNode[]): Edge[] {
           confidence: edge.confidence,
           fact: edge.fact,
         },
-      };
-    })
-    .filter(Boolean) as Edge[];
+      });
+    }
+    setEdges(rfEdges);
+
+    // --- Configure forces ---
+    const n = simNodes.length;
+    // More nodes → more spread. Scale charge and distance.
+    const chargeStrength = Math.min(-300, -150 * Math.sqrt(n));
+    const linkDistance = Math.max(120, 60 + n * 4);
+    const collideRadius = 40 + n * 0.5;
+
+    const sim = forceSimulation<SimNode>(simNodes)
+      .force(
+        "link",
+        forceLink<SimNode, SimulationLinkDatum<SimNode>>(simLinks)
+          .id((d) => d.id)
+          .distance(linkDistance)
+          .strength(0.4),
+      )
+      .force("charge", forceManyBody<SimNode>().strength(chargeStrength).distanceMax(800))
+      .force("center", forceCenter(0, 0).strength(0.05))
+      .force("collide", forceCollide<SimNode>(collideRadius).strength(0.7))
+      // Gentle pull to center to prevent disconnected clusters from flying away
+      .force("x", forceX<SimNode>(0).strength(0.03))
+      .force("y", forceY<SimNode>(0).strength(0.03))
+      .alphaDecay(0.01) // Slow decay = longer settling, smoother
+      .velocityDecay(0.3); // Friction
+
+    simulationRef.current = sim;
+
+    // --- Render loop via requestAnimationFrame ---
+    function tick() {
+      setNodes(
+        simNodes.map((sn) => ({
+          id: sn.id,
+          type: "pulse" as const,
+          position: { x: sn.x ?? 0, y: sn.y ?? 0 },
+          data: sn.data,
+        })),
+      );
+      animFrameRef.current = requestAnimationFrame(tick);
+    }
+
+    // Start the loop
+    animFrameRef.current = requestAnimationFrame(tick);
+
+    return () => {
+      cancelAnimationFrame(animFrameRef.current);
+      sim.stop();
+    };
+  }, [entities, edgeData]);
+
+  // Drag handlers — pin/unpin nodes in the simulation
+  const onNodeDragStart: OnNodeDrag = useCallback((_event, node) => {
+    const sim = simulationRef.current;
+    if (!sim) return;
+    // Reheat simulation for responsive dragging
+    sim.alphaTarget(0.3).restart();
+    const simNode = simNodesRef.current.find((n) => n.id === node.id);
+    if (simNode) {
+      simNode.fx = node.position.x;
+      simNode.fy = node.position.y;
+    }
+  }, []);
+
+  const onNodeDrag: OnNodeDrag = useCallback((_event, node) => {
+    const simNode = simNodesRef.current.find((n) => n.id === node.id);
+    if (simNode) {
+      simNode.fx = node.position.x;
+      simNode.fy = node.position.y;
+    }
+  }, []);
+
+  const onNodeDragStop: OnNodeDrag = useCallback((_event, node) => {
+    const sim = simulationRef.current;
+    if (!sim) return;
+    sim.alphaTarget(0); // Cool down
+    const simNode = simNodesRef.current.find((n) => n.id === node.id);
+    if (simNode) {
+      // Unpin — let physics take over again
+      simNode.fx = null;
+      simNode.fy = null;
+    }
+  }, []);
+
+  return { nodes, edges, onNodeDragStart, onNodeDrag, onNodeDragStop };
 }
+
+// ─── Graph Canvas Component ─────────────────────────────────────────
 
 interface GraphCanvasProps {
   mode: "entity" | "full";
@@ -221,96 +220,79 @@ interface GraphCanvasProps {
 
 function GraphCanvas({ mode }: GraphCanvasProps) {
   const router = useRouter();
+  const { fitView } = useReactFlow();
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
+  const hasFitRef = useRef(false);
 
   const { data: entities } = useGraphEntities({
-    limit: mode === "entity" ? 30 : 60,
+    limit: mode === "entity" ? 50 : 80,
     min_mentions: mode === "entity" ? 1 : 0,
   });
 
   const { data: edgesData } = useGraphEdges({});
 
-  // Compute base layout from API data (force-directed)
-  const baseNodes = useMemo(
-    () => layoutNodes(entities ?? [], edgesData ?? []),
-    [entities, edgesData]
-  );
+  const {
+    nodes: simNodes,
+    edges: simEdges,
+    onNodeDragStart,
+    onNodeDrag,
+    onNodeDragStop,
+  } = useForceLayout(entities ?? [], edgesData ?? []);
 
-  const baseEdges = useMemo(
-    () => buildEdges(edgesData ?? [], entities ?? []),
-    [edgesData, entities]
-  );
+  // Fit view once after first data load + settle
+  useEffect(() => {
+    if (simNodes.length > 0 && !hasFitRef.current) {
+      const t = setTimeout(() => {
+        fitView({ padding: 0.3, duration: 600 });
+        hasFitRef.current = true;
+      }, 800); // wait for simulation to settle a bit
+      return () => clearTimeout(t);
+    }
+  }, [simNodes.length, fitView]);
 
-  // Apply selection highlighting via useMemo — no effects, no cycles
-  const nodes = useMemo(() => {
-    if (!selectedNode) return baseNodes;
+  // Apply selection highlighting
+  const displayNodes = useMemo(() => {
+    if (!selectedNode) return simNodes;
 
-    const connectedNodeIds = new Set<string>([selectedNode]);
-    for (const e of baseEdges) {
+    const connected = new Set<string>([selectedNode]);
+    for (const e of simEdges) {
       if (e.source === selectedNode || e.target === selectedNode) {
-        connectedNodeIds.add(e.source);
-        connectedNodeIds.add(e.target);
+        connected.add(e.source);
+        connected.add(e.target);
       }
     }
 
-    return baseNodes.map((n) => ({
+    return simNodes.map((n) => ({
       ...n,
-      style: connectedNodeIds.has(n.id)
+      style: connected.has(n.id)
         ? { opacity: 1 }
-        : { opacity: 0.2, transition: "opacity 0.3s ease" },
+        : { opacity: 0.15, transition: "opacity 0.3s ease" },
     }));
-  }, [baseNodes, baseEdges, selectedNode]);
+  }, [simNodes, simEdges, selectedNode]);
 
-  const edges = useMemo(() => {
-    if (!selectedNode) return baseEdges;
+  const displayEdges = useMemo(() => {
+    if (!selectedNode) return simEdges;
 
-    const connectedEdgeIds = new Set<string>();
-    for (const e of baseEdges) {
+    const connectedEdges = new Set<string>();
+    for (const e of simEdges) {
       if (e.source === selectedNode || e.target === selectedNode) {
-        connectedEdgeIds.add(e.id);
+        connectedEdges.add(e.id);
       }
     }
 
-    return baseEdges.map((e) => ({
+    return simEdges.map((e) => ({
       ...e,
-      style: connectedEdgeIds.has(e.id)
+      style: connectedEdges.has(e.id)
         ? { opacity: 1 }
-        : { opacity: 0.1, transition: "opacity 0.3s ease" },
+        : { opacity: 0.05, transition: "opacity 0.3s ease" },
     }));
-  }, [baseEdges, selectedNode]);
-
-  // Handle React Flow's internal changes (drag, etc.) by merging into base
-  const [nodeChanges, setNodeChanges] = useState<Node[]>([]);
-  const displayNodes = nodeChanges.length > 0 ? nodeChanges : nodes;
-
-  const onNodesChange = useCallback(
-    (changes: NodeChange[]) => {
-      setNodeChanges((prev) => {
-        const current = prev.length > 0 ? prev : nodes;
-        return applyNodeChanges(changes, current);
-      });
-    },
-    [nodes]
-  );
-
-  const onEdgesChange = useCallback(
-    (changes: EdgeChange[]) => {
-      // Edge changes (selection etc.) — apply to current edges
-      void changes; // Read-only graph, no edge mutations needed
-    },
-    []
-  );
-
-  // Reset drag state when API data changes
-  const dataKey = entities?.length ?? 0;
-  useMemo(() => setNodeChanges([]), [dataKey]);
+  }, [simEdges, selectedNode]);
 
   const onNodeClick: NodeMouseHandler = useCallback(
     (_event, node) => {
       setSelectedNode((prev) => (prev === node.id ? null : node.id));
-      setNodeChanges([]); // Reset to recalculate from selection
     },
-    []
+    [],
   );
 
   const onNodeDoubleClick: NodeMouseHandler = useCallback(
@@ -318,12 +300,11 @@ function GraphCanvas({ mode }: GraphCanvasProps) {
       const label = (node.data as Record<string, unknown>).label as string;
       router.push(`/claims?entity=${encodeURIComponent(label)}`);
     },
-    [router]
+    [router],
   );
 
   const onPaneClick = useCallback(() => {
     setSelectedNode(null);
-    setNodeChanges([]);
   }, []);
 
   return (
@@ -331,13 +312,14 @@ function GraphCanvas({ mode }: GraphCanvasProps) {
       <CursorGlow />
       <ReactFlow
         nodes={displayNodes}
-        edges={edges}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
+        edges={displayEdges}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         onNodeClick={onNodeClick}
         onNodeDoubleClick={onNodeDoubleClick}
+        onNodeDragStart={onNodeDragStart}
+        onNodeDrag={onNodeDrag}
+        onNodeDragStop={onNodeDragStop}
         onPaneClick={onPaneClick}
         fitView
         fitViewOptions={{ padding: 0.3, duration: 500 }}
@@ -361,6 +343,8 @@ function GraphCanvas({ mode }: GraphCanvasProps) {
     </div>
   );
 }
+
+// ─── Export ──────────────────────────────────────────────────────────
 
 interface GraphViewerProps {
   mode?: "entity" | "full";
