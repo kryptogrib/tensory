@@ -184,13 +184,14 @@ function GraphCanvas({ mode }: GraphCanvasProps) {
 
   // React Flow manages node/edge state internally for drag/interaction
   const [nodes, setNodes, onNodesChange] = useNodesState(layout.nodes);
-  const [edges, , onEdgesChange] = useEdgesState(layout.edges);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(layout.edges);
 
   // Re-layout when data changes (new key = fresh state)
   const dataKey = `${entities?.length ?? 0}-${edgesData?.length ?? 0}`;
   useMemo(() => {
     if (layout.nodes.length > 0) {
       setNodes(layout.nodes);
+      setEdges(layout.edges);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dataKey]);
