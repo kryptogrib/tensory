@@ -180,6 +180,90 @@ async def extract_procedural(
         return []
 
 
+async def extract_long(
+    text: str,
+    llm: LLMProtocol,
+    *,
+    max_segments: int,
+    context: Context | None = None,
+    document_date: str | None = None,
+) -> tuple[list[Claim], list[EntityRelation]]:
+    """Extract claims from long text via topic segmentation + parallel extraction.
+
+    Pipeline:
+    1. segment_text() → list of (title, section_text)
+    2. For each section: prepend header → extract_claims() in parallel
+    3. Deduplicate entity names across sections
+    4. Aggregate all claims + relations
+
+    Falls back to paragraph splitting if segmentation fails.
+
+    Args:
+        text: Long text to extract from.
+        llm: LLM callable.
+        max_segments: Maximum sections to split into.
+        context: Optional research goal.
+        document_date: Date of the document (preserved in section headers).
+    """
+    import asyncio
+
+    from tensory.chunking import build_section_header, deduplicate_entities, normalize_entity, segment_text
+
+    # Step 1: Segment text into thematic sections
+    sections = await segment_text(text, llm, max_segments=max_segments)
+
+    if not sections:
+        return await extract_claims(text, llm, context=context)
+
+    # Step 2: Build extraction tasks with section headers
+    total = len(sections)
+
+    async def _extract_section(
+        index: int, title: str, section_text: str
+    ) -> tuple[list[Claim], list[EntityRelation]]:
+        header = build_section_header(
+            document_date=document_date,
+            section_index=index,
+            total_sections=total,
+            section_title=title,
+        )
+        augmented_text = f"{header}\n\n{section_text}"
+        return await extract_claims(augmented_text, llm, context=context)
+
+    # Step 3: Parallel extraction
+    tasks = [
+        _extract_section(i, title, sec_text)
+        for i, (title, sec_text) in enumerate(sections)
+    ]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    # Step 4: Aggregate results
+    all_claims: list[Claim] = []
+    all_relations: list[EntityRelation] = []
+    for result in results:
+        if isinstance(result, BaseException):
+            logger.warning("Section extraction failed: %s", result)
+            continue
+        claims, relations = result
+        all_claims.extend(claims)
+        all_relations.extend(relations)
+
+    # Step 5: Deduplicate entity names across sections
+    all_entity_names: list[str] = []
+    for claim in all_claims:
+        all_entity_names.extend(claim.entities)
+    canonical = deduplicate_entities(all_entity_names)
+    canonical_map: dict[str, str] = {}
+    for name in canonical:
+        canonical_map[normalize_entity(name)] = name
+    for claim in all_claims:
+        claim.entities = [
+            canonical_map.get(normalize_entity(e), e) for e in claim.entities
+        ]
+
+    return all_claims, all_relations
+
+
 def _parse_procedural_extraction(response: str) -> list[Claim]:
     """Parse LLM response into procedural Claim objects."""
     text = response.strip()
