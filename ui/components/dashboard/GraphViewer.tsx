@@ -255,6 +255,14 @@ function GraphCanvas({ mode }: GraphCanvasProps) {
 
   return (
     <div className="relative h-full w-full" style={{ background: "#0a0908" }}>
+      {/* Ambient center glow — makes graph area feel lit */}
+      <div
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background: "radial-gradient(ellipse 60% 50% at 50% 45%, rgba(217,119,6,0.04) 0%, rgba(217,119,6,0.015) 40%, transparent 70%)",
+          zIndex: 0,
+        }}
+      />
       <CursorGlow />
       <ReactFlow
         nodes={displayNodes}

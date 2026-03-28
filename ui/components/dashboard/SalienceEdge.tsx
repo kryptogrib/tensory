@@ -23,15 +23,15 @@ export type SalienceEdgeData = {
 
 function getEdgeStyle(confidence: number) {
   if (confidence > 0.7) {
-    return { dash: undefined, width: 1.6, opacity: 0.45, color: "#d97706" };
+    return { dash: undefined, width: 2, opacity: 0.6, color: "#d97706" };
   }
   if (confidence >= 0.4) {
-    return { dash: "6 4", width: 1.0, opacity: 0.22, color: "#d97706" };
+    return { dash: "6 4", width: 1.2, opacity: 0.35, color: "#d97706" };
   }
   if (confidence >= 0.2) {
-    return { dash: "3 5", width: 0.6, opacity: 0.12, color: "#b45309" };
+    return { dash: "3 5", width: 0.8, opacity: 0.2, color: "#b45309" };
   }
-  return { dash: "2 7", width: 0.4, opacity: 0.06, color: "#78716c" };
+  return { dash: "2 7", width: 0.5, opacity: 0.1, color: "#78716c" };
 }
 
 function SalienceEdgeComponent({

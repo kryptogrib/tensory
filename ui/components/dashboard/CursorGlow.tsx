@@ -2,71 +2,44 @@
 
 /* ─── Cursor Glow ────────────────────────────────────────────────────
  *
- * Ambient light following the cursor. Uses CSS transition for
- * buttery-smooth movement instead of JS lerp (no stepping artifacts).
- *
- * The transition property handles all interpolation — we just set
- * the target position on pointermove and CSS does the smoothing.
- * Two layers: large soft outer + smaller brighter inner (slower).
+ * Simple, elegant: one soft radial gradient div that follows the
+ * cursor via CSS transition. No JS animation loop, no lerp, no lag.
+ * Just CSS doing what it does best.
  * ──────────────────────────────────────────────────────────────────── */
 
 import { useRef, useEffect } from "react";
 
 export function CursorGlow() {
-  const outerRef = useRef<HTMLDivElement>(null);
-  const innerRef = useRef<HTMLDivElement>(null);
+  const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    function onPointerMove(e: PointerEvent) {
-      // Just set the target — CSS transition handles the smoothing
-      if (outerRef.current) {
-        outerRef.current.style.left = `${e.clientX - 250}px`;
-        outerRef.current.style.top = `${e.clientY - 250}px`;
-      }
-      if (innerRef.current) {
-        innerRef.current.style.left = `${e.clientX - 100}px`;
-        innerRef.current.style.top = `${e.clientY - 100}px`;
+    function onMove(e: PointerEvent) {
+      if (ref.current) {
+        ref.current.style.left = `${e.clientX}px`;
+        ref.current.style.top = `${e.clientY}px`;
       }
     }
-
-    window.addEventListener("pointermove", onPointerMove, { passive: true });
-    return () => window.removeEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointermove", onMove, { passive: true });
+    return () => window.removeEventListener("pointermove", onMove);
   }, []);
 
   return (
-    <>
-      {/* Outer soft glow — large, very subtle, slow follow */}
-      <div
-        ref={outerRef}
-        className="pointer-events-none fixed"
-        style={{
-          width: 500,
-          height: 500,
-          borderRadius: "50%",
-          background:
-            "radial-gradient(circle at center, rgba(217,119,6,0.03) 0%, rgba(217,119,6,0.01) 35%, transparent 65%)",
-          zIndex: 0,
-          transition: "left 0.8s cubic-bezier(0.25, 0.1, 0.25, 1), top 0.8s cubic-bezier(0.25, 0.1, 0.25, 1)",
-          left: -500,
-          top: -500,
-        }}
-      />
-      {/* Inner brighter core — smaller, faster follow */}
-      <div
-        ref={innerRef}
-        className="pointer-events-none fixed"
-        style={{
-          width: 200,
-          height: 200,
-          borderRadius: "50%",
-          background:
-            "radial-gradient(circle at center, rgba(217,119,6,0.05) 0%, rgba(217,119,6,0.02) 40%, transparent 65%)",
-          zIndex: 0,
-          transition: "left 0.4s cubic-bezier(0.25, 0.1, 0.25, 1), top 0.4s cubic-bezier(0.25, 0.1, 0.25, 1)",
-          left: -500,
-          top: -500,
-        }}
-      />
-    </>
+    <div
+      ref={ref}
+      className="pointer-events-none fixed"
+      style={{
+        width: 600,
+        height: 600,
+        marginLeft: -300,
+        marginTop: -300,
+        borderRadius: "50%",
+        background:
+          "radial-gradient(circle at center, rgba(217,119,6,0.04) 0%, rgba(217,119,6,0.015) 30%, transparent 60%)",
+        zIndex: 0,
+        transition: "left 0.6s ease-out, top 0.6s ease-out",
+        left: -600,
+        top: -600,
+      }}
+    />
   );
 }

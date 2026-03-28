@@ -113,22 +113,20 @@ function PulseNodeComponent({ data, selected }: NodeProps) {
           justifyContent: "center",
         }}
       >
-        {/* Glow halo for high-mention nodes */}
-        {mentionCount >= 5 && (
-          <div
-            style={{
-              position: "absolute",
-              top: "50%",
-              left: "50%",
-              transform: "translate(-50%, -50%)",
-              width: boundarySize * 2.5,
-              height: boundarySize * 2.5,
-              borderRadius: "50%",
-              background: `radial-gradient(circle, rgba(217,119,6,${0.03 + salience * 0.05}) 0%, transparent 70%)`,
-              pointerEvents: "none",
-            }}
-          />
-        )}
+        {/* Glow halo — every node gets one, brighter for high-mention */}
+        <div
+          style={{
+            position: "absolute",
+            top: "50%",
+            left: "50%",
+            transform: "translate(-50%, -50%)",
+            width: boundarySize * 3,
+            height: boundarySize * 3,
+            borderRadius: "50%",
+            background: `radial-gradient(circle, rgba(217,119,6,${0.06 + salience * 0.1}) 0%, rgba(217,119,6,${0.02 + salience * 0.03}) 40%, transparent 70%)`,
+            pointerEvents: "none",
+          }}
+        />
 
         {/* Pulse rings */}
         <div style={{ position: "relative", width: boxSize * 0.7, height: boxSize * 0.7 }}>
@@ -143,7 +141,7 @@ function PulseNodeComponent({ data, selected }: NodeProps) {
                 width: boundarySize + 8,
                 height: boundarySize + 8,
                 borderRadius: "50%",
-                border: `1px solid rgba(217, 119, 6, ${0.15 + salience * 0.15})`,
+                border: `1px solid rgba(217, 119, 6, ${0.25 + salience * 0.2})`,
                 animation: `pulse-ring ${2.5 + i * 0.5}s ease-out infinite`,
                 animationDelay: `${i * 0.8}s`,
                 pointerEvents: "none",
@@ -161,11 +159,11 @@ function PulseNodeComponent({ data, selected }: NodeProps) {
               width: boundarySize,
               height: boundarySize,
               borderRadius: "50%",
-              border: `1px solid rgba(217, 119, 6, ${selected ? 0.4 : 0.1})`,
+              border: `1px solid rgba(217, 119, 6, ${selected ? 0.5 : 0.2})`,
               animation: "breathe 4s ease-in-out infinite",
               background: selected
-                ? "rgba(217, 119, 6, 0.06)"
-                : "rgba(217, 119, 6, 0.015)",
+                ? "rgba(217, 119, 6, 0.1)"
+                : `rgba(217, 119, 6, ${0.03 + salience * 0.04})`,
             }}
           />
 
@@ -179,8 +177,8 @@ function PulseNodeComponent({ data, selected }: NodeProps) {
               width: coreSize,
               height: coreSize,
               borderRadius: "50%",
-              background: `rgba(217, 119, 6, ${salience})`,
-              boxShadow: `0 0 ${8 + salience * 14}px rgba(217, 119, 6, ${salience * 0.5}), 0 0 ${20 + salience * 20}px rgba(217, 119, 6, ${salience * 0.15})`,
+              background: `rgba(217, 119, 6, ${Math.min(salience + 0.2, 1)})`,
+              boxShadow: `0 0 ${10 + salience * 16}px rgba(217, 119, 6, ${salience * 0.7}), 0 0 ${25 + salience * 30}px rgba(217, 119, 6, ${salience * 0.25}), 0 0 ${40 + salience * 40}px rgba(217, 119, 6, ${salience * 0.08})`,
               animation: "glow-pulse 3s ease-in-out infinite",
             }}
           />
@@ -193,7 +191,7 @@ function PulseNodeComponent({ data, selected }: NodeProps) {
             fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Fira Code', monospace",
             fontSize: labelSize,
             fontWeight: mentionCount >= 8 ? 600 : 400,
-            color: selected ? "#f5e6d3" : mentionCount >= 5 ? "#c2a882" : "#8a7e72",
+            color: selected ? "#f5e6d3" : mentionCount >= 5 ? "#e8c89a" : "#a89880",
             maxWidth: boxSize + 30,
             overflow: "hidden",
             textOverflow: "ellipsis",
