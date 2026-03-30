@@ -99,7 +99,7 @@ uvx --from "tensory[ui]" tensory-dashboard --db ~/.local/share/tensory/memory.db
 docker run -d -p 7770:7770 --name tensory-dashboard \
   -v ~/.local/share/tensory:/data \
   --restart unless-stopped \
-  ghcr.io/tensory/tensory
+  ghcr.io/kryptogrib/tensory
 ```
 
 Open **http://localhost:7770** — entity graph explorer, claims browser, memory stats.
