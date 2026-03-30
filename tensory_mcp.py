@@ -293,5 +293,10 @@ async def tensory_health() -> str:
     return json.dumps(health, indent=2)
 
 
-if __name__ == "__main__":
+def main() -> None:
+    """Entry point for ``tensory-mcp`` CLI command."""
     mcp.run(transport="stdio")
+
+
+if __name__ == "__main__":
+    main()

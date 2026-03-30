@@ -8,7 +8,9 @@ import type {
   ClaimDetail,
 } from "./types";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+// In production (static export served by FastAPI) — same origin, no prefix needed.
+// In dev mode (next dev) — proxy to separate API server.
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, init);

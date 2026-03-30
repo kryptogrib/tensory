@@ -23,3 +23,6 @@ benchmarks/locomo/results/
 
 /ref
 .pypirc
+tensory/_ui_static/
+ui/out/
+ui/.next/

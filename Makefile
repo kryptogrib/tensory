@@ -30,6 +30,21 @@ lint:
 	uv run pyright tensory/ api/
 	uv run ruff check tensory/ api/ tests/
 
+# Build UI static files → copy into tensory/_ui_static/
+build-ui:
+	@echo "\033[0;33m[Build UI]\033[0m Building Next.js static export..."
+	cd ui && NEXT_PUBLIC_API_URL="" npm run build
+	rm -rf tensory/_ui_static
+	cp -r ui/out tensory/_ui_static
+	@echo "\033[0;32m[Build UI]\033[0m Done → tensory/_ui_static/"
+
+# Build Python package (with UI included)
+build: build-ui
+	rm -rf dist/
+	uv build
+	@ls -lh dist/
+	@echo "\033[0;32m[Build]\033[0m Package ready in dist/"
+
 # Docker launch
 docker:
 	docker compose up --build

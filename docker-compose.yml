@@ -1,22 +1,15 @@
 services:
-  api:
-    build:
-      context: .
-      dockerfile: Dockerfile.api
+  tensory:
+    build: .
     ports:
-      - "8000:8000"
+      - "8888:8888"
     environment:
       - TENSORY_DB_PATH=/data/tensory.db
-      - CORS_ORIGINS=http://localhost:3000,http://frontend:3000
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - ANTHROPIC_BASE_URL=${ANTHROPIC_BASE_URL:-}
     volumes:
-      - ./data:/data
+      - tensory-data:/data
 
-  frontend:
-    build:
-      context: ./ui
-    ports:
-      - "3000:3000"
-    environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8000
-    depends_on:
-      - api
+volumes:
+  tensory-data:
