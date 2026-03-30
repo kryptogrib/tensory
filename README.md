@@ -106,9 +106,11 @@ Open **http://localhost:7770** — entity graph explorer, claims browser, memory
 
 ### 3. Agent Self-Install Prompt
 
-Send this to your AI agent (Claude Code, Cursor, etc.) — it will install tensory MCP itself:
+Send this to your AI agent (Claude Code, Cursor, etc.) — it will install tensory MCP and hooks itself:
 
-> Install the tensory MCP server for long-term memory. Add it to `.mcp.json` in the project root:
+> Install the tensory MCP server for long-term memory. Do two things:
+>
+> **Step 1.** Add MCP server to `.mcp.json` in the project root:
 >
 > ```json
 > {
@@ -125,6 +127,31 @@ Send this to your AI agent (Claude Code, Cursor, etc.) — it will install tenso
 > }
 > ```
 >
+> **Step 2.** Add hooks to `.claude/settings.json` for automatic memory recall and save:
+>
+> ```json
+> {
+>   "hooks": {
+>     "UserPromptSubmit": [
+>       {
+>         "hooks": [{
+>           "type": "command",
+>           "command": "uvx --from tensory tensory-recall \"$USER_PROMPT\""
+>         }]
+>       }
+>     ],
+>     "Stop": [
+>       {
+>         "hooks": [{
+>           "type": "command",
+>           "command": "uvx --from tensory tensory-save"
+>         }]
+>       }
+>     ]
+>   }
+> }
+> ```
+>
 > `OPENAI_API_KEY` enables vector search (embeddings). Without it, only text + graph search work — still useful but less accurate.
 >
 > After creating `.mcp.json`, verify with `tensory_health` tool. You now have 7 tools:
@@ -135,13 +162,18 @@ Send this to your AI agent (Claude Code, Cursor, etc.) — it will install tenso
 > - `tensory_stats()` — memory database stats
 > - `tensory_health()` — check which components are active
 > - `tensory_reset()` — clear all memory (careful!)
+>
+> **How it works with hooks:**
+> - `UserPromptSubmit` — before each message, searches memory for relevant facts and injects them as context. The agent sees past knowledge immediately without tool calls.
+> - `Stop` — when the session ends, saves a summary of the conversation to memory. Nothing is lost between sessions.
 
 ### Agent System Prompt
 
 Add this to your agent's system prompt or project rules (e.g., `CLAUDE.md`) so it knows how to use memory:
 
 ```
-You have long-term memory via tensory MCP tools.
+You have long-term memory via tensory MCP tools. Memory hooks automatically search
+before each prompt and save on session end — but you should also actively use tools.
 
 STORING: Use tensory_remember to store facts, decisions, and preferences:
   [{"text": "User prefers dark mode", "entities": ["User"], "type": "fact"}]
@@ -150,8 +182,10 @@ Claim types: "fact" (verifiable), "experience" (event), "observation" (inference
 RETRIEVING: Use tensory_search BEFORE answering questions about past work or user preferences.
 Use tensory_timeline to see how facts about something changed over time.
 
-WHEN TO STORE: User shares preferences, decisions, or important context. A fact changed or was corrected. You learned something important from the conversation.
-WHEN TO SEARCH: User asks about something discussed before. You need context from previous sessions. Before making assumptions — check memory first.
+WHEN TO STORE: User shares preferences, decisions, or important context. A fact changed
+or was corrected. You learned something important from the conversation.
+WHEN TO SEARCH: User asks about something discussed before. You need context from
+previous sessions. Before making assumptions — check memory first.
 ```
 
 ### 4. As a Python library
