@@ -15,7 +15,6 @@ Usage::
 from tensory.context import format_context
 from tensory.embedder import Embedder, NullEmbedder, OpenAIEmbedder
 from tensory.extract import LLMProtocol
-from tensory.routing import classify_query
 from tensory.graph import GraphBackend, Neo4jBackend, SQLiteGraphBackend
 from tensory.models import (
     Claim,
@@ -30,6 +29,7 @@ from tensory.models import (
     ReflectResult,
     SearchResult,
 )
+from tensory.routing import classify_query
 from tensory.service import TensoryService
 from tensory.store import Tensory
 

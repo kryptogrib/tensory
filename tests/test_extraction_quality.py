@@ -20,7 +20,7 @@ import os
 
 import pytest
 
-from tensory import Claim, Tensory
+from tensory import Tensory
 from tensory.embedder import NullEmbedder
 
 # ── Skip if no LLM available ────────────────────────────────────────────

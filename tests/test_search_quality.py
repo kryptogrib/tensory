@@ -15,12 +15,10 @@ Run:
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass
 
 import pytest
 
 from tensory import Claim, Tensory
-
 
 # ── Deterministic embedder (no API key) ──────────────────────────────────
 

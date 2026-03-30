@@ -388,7 +388,7 @@ def _cosine_sim(a: list[float], b: list[float]) -> float:
     OpenAI embeddings are pre-normalized so dot product ≈ cosine.
     We add norm division for safety with non-normalized vectors.
     """
-    dot = sum(ai * bi for ai, bi in zip(a, b))
+    dot = sum(ai * bi for ai, bi in zip(a, b, strict=False))
     norm_a = math.sqrt(sum(ai * ai for ai in a))
     norm_b = math.sqrt(sum(bi * bi for bi in b))
     if norm_a < 1e-10 or norm_b < 1e-10:
@@ -486,7 +486,7 @@ async def _mmr_rerank(
         best_score = -float("inf")
         best_idx = -1
 
-        for i, (result, emb) in enumerate(remaining):
+        for i, (_result, emb) in enumerate(remaining):
             # Relevance: cosine similarity to query
             relevance = _cosine_sim(query_embedding, emb)
 
