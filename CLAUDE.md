@@ -13,7 +13,7 @@ Tooling: pyright (strict), ruff (lint + format), pytest-asyncio
 
 ```bash
 uv sync --all-extras                    # Install all deps
-uv run pytest tests/                    # Run all 246 tests
+uv run pytest tests/                    # Run all tests (~275)
 uv run pytest tests/test_store.py::test_name   # Single test
 uv run pyright tensory/                 # Type check (strict mode)
 uv run ruff check tensory/ tests/       # Lint
@@ -24,11 +24,13 @@ uv run python examples/demo.py          # Integration demo
 ## Architecture
 
 ```
-tensory/                 # Library source (13 modules)
+tensory/                 # Library source (15 modules)
   store.py               # Tensory orchestrator — 10 public methods
   models.py              # Pydantic: Episode, Context, Claim, MemoryType, ProceduralResult, ...
   schema.py              # SQLite schema v2 (4 layers + procedural, WAL, FTS5, sqlite-vec cosine)
   search.py              # Hybrid search (FTS5 + vector + graph → RRF → MMR diversity) + memory_type filter
+  context.py             # format_context() — smart LLM-ready formatter (entity grouping, temporal annotations)
+  routing.py             # classify_query() — regex query→MemoryType classifier (no LLM)
   collisions.py          # Two-level collision detection (structural + semantic)
   dedup.py               # MinHash/LSH (Apache 2.0 from Graphiti — keep attribution!)
   embedder.py            # Embedder Protocol + OpenAIEmbedder + NullEmbedder
@@ -38,7 +40,7 @@ tensory/                 # Library source (13 modules)
   graph.py               # GraphBackend Protocol + SQLiteGraphBackend (recursive CTEs)
   prompts.py             # All LLM prompts: extraction, CARA, procedural, segmentation
   __init__.py            # Public API exports
-tests/                   # One test file per module (246 tests)
+tests/                   # One test file per module (~275 tests)
 examples/
   demo.py                # Full integration demo (works without API keys)
   llm_adapters.py        # Ready-to-use: OpenAI, Anthropic (with proxy), Ollama
@@ -108,19 +110,30 @@ Long texts are automatically segmented via topic segmentation:
 - Fallback: if LLM segmentation fails → paragraph splitting (no LLM)
 - Entity names deduplicated across sections via lowercase normalization
 
+## Context Formatting & Query Routing (Phase 9)
+
+Smart LLM-ready formatting of search results + automatic memory-type routing:
+- `format_context(results)` → structured text with entity grouping, temporal annotations, superseding markers
+- `classify_query(query)` → `MemoryType | None` via regex (no LLM). "When X?" → EPISODIC, "How to X?" → PROCEDURAL
+- Conditional grouping: groups by entity only when >3 unique entities, otherwise flat list
+- Each claim annotated: `[score=0.87, fact, Jan 2024→]` or `[score=0.72, fact, Jan-Mar 2024, OUTDATED, replaced by #2]`
+- Benchmark pipeline (`benchmarks/locomo/answer.py`) uses both by default
+- `claim.temporal` is often None — formatter falls back to `valid_from` → `created_at`
+
 ## Documentation
 
 Rules for writing/maintaining docs: `docs/documentation-guide.md`
 
 ## Current Status
 
-Phases 1-8 complete. 246 tests, pyright strict, ruff clean, uv, GitHub Actions CI.
+Phases 1-9 complete. 275+ tests, pyright strict, ruff clean, uv, GitHub Actions CI.
 - Phase 5+ Neo4jBackend ✅
 - Phase 5++ CARA reflect() ✅
 - Phase 5+++ MCP server ✅
 - Phase 6: Procedural Memory ✅ (Skill-MDP, feedback loop, search_procedural)
 - Phase 7: Hybrid Extraction ✅ (topic segmentation, parallel extraction, entity dedup)
 - Phase 8: Search Diversity ✅ (MMR reranking, entity-cap fallback, search quality tests)
+- Phase 9: Context Formatting ✅ (format_context, classify_query, memory-type routing)
 
 ## Benchmark (LoCoMo / AMB)
 
@@ -129,5 +142,6 @@ Benchmark docs: `benchmarks/locomo/README.md`
 - Tensory registered as `tensory` provider in AMB (Open Memory Benchmark)
 - Exact token tracking via `TrackingEmbedder` and `_make_tracking_llm()` (no estimation)
 - `anthropic` LLM provider added to AMB for proxy-based answer/judge
-- Provider includes `_structure_context()` for entity-grouped retrieval + `_mmr_rerank()` for diversity
+- `format_context()` now in core library — entity-grouped retrieval with temporal annotations
+- Provider uses `_mmr_rerank()` for diversity
 - Competitor results: Hindsight 92%, Cognee 80.3%, Hybrid Search 79.1% (all Gemini 3.1 Pro, LoCoMo)
