@@ -1,14 +1,16 @@
 """tensory MCP server — connects to Claude Code.
 
-Configuration in Claude Code (.claude/settings.json):
-    "mcpServers": {
-        "tensory": {
-            "command": "/Users/chelovek/Work/tensory/.venv/bin/python",
-            "args": ["/Users/chelovek/Work/tensory/tensory_mcp.py"],
-            "env": {
-                "ANTHROPIC_BASE_URL": "http://localhost:8317",
-                "ANTHROPIC_API_KEY": "signal-hunter-local"
-            }
+Provides 7 memory tools via MCP (stdio). For the web dashboard,
+run ``tensory-dashboard`` separately (see tensory/dashboard.py).
+
+Configuration in .mcp.json::
+
+    "tensory": {
+        "command": "uv",
+        "args": ["run", "--project", "/path/to/tensory", "tensory-mcp"],
+        "env": {
+            "TENSORY_DB": "data/tensory_memory.db",
+            ...
         }
     }
 """
