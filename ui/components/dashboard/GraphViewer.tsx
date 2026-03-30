@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState, useEffect } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   ReactFlow,
   Background,
@@ -8,7 +8,6 @@ import {
   useNodesState,
   useEdgesState,
   type Node,
-  type Edge,
   type NodeMouseHandler,
   type OnNodeDrag,
   ReactFlowProvider,
@@ -16,201 +15,18 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useRouter } from "next/navigation";
-import {
-  forceSimulation,
-  forceLink,
-  forceManyBody,
-  forceCenter,
-  forceCollide,
-  forceX,
-  forceY,
-  type SimulationNodeDatum,
-  type SimulationLinkDatum,
-  type Simulation,
-} from "d3-force";
 
 import { useGraphEntities, useGraphEdges } from "@/hooks/use-graph";
-import type { EntityNode, EdgeData } from "@/lib/types";
+import { useGraphLayout } from "@/hooks/use-graph-layout";
+import type { PhysicsParams } from "./PhysicsTuner";
+import { DEFAULT_PHYSICS } from "./PhysicsTuner";
 import { PulseNode } from "./PulseNode";
 import { SalienceEdge } from "./SalienceEdge";
 import { CursorGlow } from "./CursorGlow";
 import { ZoomControls } from "./ZoomControls";
-import {
-  PhysicsTuner,
-  DEFAULT_PHYSICS,
-  type PhysicsParams,
-} from "./PhysicsTuner";
 
 const nodeTypes = { pulse: PulseNode };
 const edgeTypes = { salience: SalienceEdge };
-
-/* ─── d3-force Layout + Live Simulation ────────────────────────────────
- *
- * The simulation runs synchronously at mount for initial layout (300 ticks),
- * then stays ALIVE in a useRef (alpha≈0, sleeping). On drag:
- *   - onNodeDrag:  pin fx/fy, sync-tick 2-3 times, update neighbor positions
- *   - onNodeDragStop: unpin, short RAF settle (8 ticks over ~150ms)
- *
- * This avoids continuous render loops while giving floaty, meditative physics.
- * ──────────────────────────────────────────────────────────────────── */
-
-interface SimNode extends SimulationNodeDatum {
-  nodeId: string;
-  label: string;
-  mentionCount: number;
-  entityType: string | null;
-}
-
-/** Return value from layout computation — includes the live simulation. */
-interface LayoutResult {
-  nodes: Node[];
-  edges: Edge[];
-  sim: Simulation<SimNode, SimulationLinkDatum<SimNode>>;
-  simNodes: SimNode[];
-  simNodeMap: Map<string, SimNode>;
-  /** Adjacency: nodeId → Set of 1-hop neighbor nodeIds */
-  adjacency: Map<string, Set<string>>;
-  /** 2-hop adjacency: nodeId → Set of 2-hop neighbor nodeIds (excluding 1-hop) */
-  adjacency2: Map<string, Set<string>>;
-  /** Edge confidence map: "srcId-tgtId" → confidence */
-  confidenceMap: Map<string, number>;
-}
-
-function computeLayout(
-  entities: EntityNode[],
-  edgeData: EdgeData[],
-): LayoutResult | null {
-  if (entities.length === 0) return null;
-
-  const n = entities.length;
-  const idByName = new Map<string, string>();
-  for (const e of entities) idByName.set(e.name, e.id);
-
-  // Create sim nodes — initialize on a circle for faster convergence
-  const simNodes: SimNode[] = entities.map((entity, i) => {
-    const angle = (i / n) * 2 * Math.PI;
-    const r = 120 + Math.random() * 30;
-    return {
-      nodeId: entity.id,
-      label: entity.name,
-      mentionCount: entity.mention_count,
-      entityType: entity.type,
-      x: Math.cos(angle) * r,
-      y: Math.sin(angle) * r,
-    };
-  });
-
-  // Build links, edges, adjacency, confidence
-  const simNodeMap = new Map<string, SimNode>();
-  for (const sn of simNodes) simNodeMap.set(sn.nodeId, sn);
-
-  const simLinks: SimulationLinkDatum<SimNode>[] = [];
-  const rfEdges: Edge[] = [];
-  const adjacency = new Map<string, Set<string>>();
-  const confidenceMap = new Map<string, number>();
-  let idx = 0;
-
-  // Init adjacency for all nodes
-  for (const sn of simNodes) adjacency.set(sn.nodeId, new Set());
-
-  for (const edge of edgeData) {
-    const srcId = idByName.get(edge.from_entity);
-    const tgtId = idByName.get(edge.to_entity);
-    if (!srcId || !tgtId || srcId === tgtId) continue;
-
-    const src = simNodeMap.get(srcId);
-    const tgt = simNodeMap.get(tgtId);
-    if (!src || !tgt) continue;
-
-    simLinks.push({ source: src, target: tgt });
-    rfEdges.push({
-      id: `e-${idx++}-${srcId}-${tgtId}`,
-      source: srcId,
-      target: tgtId,
-      type: "salience",
-      data: {
-        relType: edge.rel_type,
-        confidence: edge.confidence,
-        fact: edge.fact,
-      },
-    });
-
-    // Build adjacency
-    adjacency.get(srcId)!.add(tgtId);
-    adjacency.get(tgtId)!.add(srcId);
-
-    // Confidence map (bidirectional)
-    const conf = edge.confidence ?? 0.5;
-    confidenceMap.set(`${srcId}-${tgtId}`, conf);
-    confidenceMap.set(`${tgtId}-${srcId}`, conf);
-  }
-
-  // Build 2-hop adjacency
-  const adjacency2 = new Map<string, Set<string>>();
-  for (const [nodeId, neighbors] of adjacency) {
-    const hop2 = new Set<string>();
-    for (const n1 of neighbors) {
-      const n1Neighbors = adjacency.get(n1);
-      if (!n1Neighbors) continue;
-      for (const n2 of n1Neighbors) {
-        if (n2 !== nodeId && !neighbors.has(n2)) hop2.add(n2);
-      }
-    }
-    adjacency2.set(nodeId, hop2);
-  }
-
-  // --- Configure and run simulation synchronously ---
-  const chargeStrength = Math.min(-400, -120 * Math.sqrt(n));
-  const linkDist = Math.max(150, 80 + n * 5);
-  const collideR = 50 + n * 0.5;
-
-  const sim = forceSimulation<SimNode>(simNodes)
-    .force(
-      "link",
-      forceLink<SimNode, SimulationLinkDatum<SimNode>>(simLinks)
-        .id((d) => d.nodeId)
-        .distance(linkDist)
-        .strength(0.5),
-    )
-    .force("charge", forceManyBody<SimNode>().strength(chargeStrength).distanceMax(1000))
-    .force("center", forceCenter(0, 0).strength(0.08))
-    .force("collide", forceCollide<SimNode>(collideR).strength(0.8))
-    .force("x", forceX<SimNode>(0).strength(0.04))
-    .force("y", forceY<SimNode>(0).strength(0.04))
-    .velocityDecay(0.35)
-    .stop();
-
-  // Run 300 ticks synchronously (instant, <10ms for 100 nodes)
-  const TICKS = 300;
-  for (let i = 0; i < TICKS; i++) sim.tick();
-
-  // Build React Flow nodes from final positions
-  const rfNodes: Node[] = simNodes.map((sn) => ({
-    id: sn.nodeId,
-    type: "pulse",
-    position: { x: sn.x ?? 0, y: sn.y ?? 0 },
-    data: {
-      label: sn.label,
-      mentionCount: sn.mentionCount,
-      claimCount: 0,
-      entityType: sn.entityType,
-    },
-  }));
-
-  // Keep sim alive but sleeping (alpha→0)
-  sim.alpha(0).stop();
-
-  return {
-    nodes: rfNodes,
-    edges: rfEdges,
-    sim,
-    simNodes,
-    simNodeMap,
-    adjacency,
-    adjacency2,
-    confidenceMap,
-  };
-}
 
 // ─── Graph Canvas Component ─────────────────────────────────────────
 
@@ -224,16 +40,6 @@ function GraphCanvas({ mode, physics }: GraphCanvasProps) {
   const { fitView } = useReactFlow();
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
 
-  // Refs for simulation state
-  const simRef = useRef<{
-    sim: Simulation<SimNode, SimulationLinkDatum<SimNode>>;
-    simNodes: SimNode[];
-    simNodeMap: Map<string, SimNode>;
-    adjacency: Map<string, Set<string>>;
-    adjacency2: Map<string, Set<string>>;
-    confidenceMap: Map<string, number>;
-  } | null>(null);
-  const rafRef = useRef<number | null>(null);
   const lastDragUpdateRef = useRef<number>(0);
   const physicsRef = useRef(physics);
   physicsRef.current = physics;
@@ -245,48 +51,21 @@ function GraphCanvas({ mode, physics }: GraphCanvasProps) {
 
   const { data: edgesData } = useGraphEdges({});
 
-  // Compute layout (pure function + keeps simulation alive)
-  const layout = useMemo(
-    () => computeLayout(entities ?? [], edgesData ?? []),
-    [entities, edgesData],
-  );
+  // Use extracted layout hook
+  const { layout, simRef, rafRef } = useGraphLayout(entities, edgesData);
 
   // React Flow manages node/edge state
   const [nodes, setNodes, onNodesChange] = useNodesState(layout?.nodes ?? []);
   const [edges, setEdges, onEdgesChange] = useEdgesState(layout?.edges ?? []);
 
-  // Re-layout + rebuild sim ref when data changes
+  // Sync React Flow state when layout changes
   const dataKey = `${entities?.length ?? 0}-${edgesData?.length ?? 0}`;
   useMemo(() => {
     if (!layout || layout.nodes.length === 0) return;
-
-    // Cancel any running settle
-    if (rafRef.current) {
-      cancelAnimationFrame(rafRef.current);
-      rafRef.current = null;
-    }
-
     setNodes(layout.nodes);
     setEdges(layout.edges);
-
-    // Store simulation ref for drag physics
-    simRef.current = {
-      sim: layout.sim,
-      simNodes: layout.simNodes,
-      simNodeMap: layout.simNodeMap,
-      adjacency: layout.adjacency,
-      adjacency2: layout.adjacency2,
-      confidenceMap: layout.confidenceMap,
-    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dataKey]);
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    };
-  }, []);
 
   // ─── Drag Physics ──────────────────────────────────────────────────
 
@@ -302,7 +81,7 @@ function GraphCanvas({ mode, physics }: GraphCanvasProps) {
         sn.y = n.position.y;
       }
     }
-  }, []);
+  }, [simRef]);
 
   const onNodeDrag: OnNodeDrag = useCallback(
     (_event, node) => {
@@ -382,7 +161,7 @@ function GraphCanvas({ mode, physics }: GraphCanvasProps) {
         );
       }
     },
-    [setNodes],
+    [setNodes, simRef, rafRef],
   );
 
   const onNodeDragStop: OnNodeDrag = useCallback(
@@ -445,7 +224,7 @@ function GraphCanvas({ mode, physics }: GraphCanvasProps) {
 
       rafRef.current = requestAnimationFrame(settle);
     },
-    [setNodes, syncSimPositions],
+    [setNodes, syncSimPositions, simRef, rafRef],
   );
 
   // ─── Selection Highlighting ──────────────────────────────────────
