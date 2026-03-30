@@ -1,6 +1,6 @@
 [project]
 name = "tensory"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Embedded claim-native memory for AI agents. Collision detection built-in."
 requires-python = ">=3.11"
 license = "MIT"
@@ -40,8 +40,17 @@ Documentation = "https://github.com/tensory/tensory#readme"
 Issues = "https://github.com/tensory/tensory/issues"
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "vcs"
+# Version from git tags: v0.2.0 → 0.2.0
+# Between tags: 0.2.0.dev3+gabcdef1
+
+[tool.hatch.build.hooks.vcs]
+version-file = "tensory/_version.py"
+# Auto-generates tensory/_version.py at build time
 
 [tool.hatch.build]
 # Include gitignored build artifacts (pre-built UI static files)

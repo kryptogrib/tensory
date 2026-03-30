@@ -59,4 +59,7 @@ __all__ = [
     "Neo4jBackend",
 ]
 
-__version__ = "0.1.0"
+try:
+    from tensory._version import __version__
+except ModuleNotFoundError:  # editable install / dev without build
+    __version__ = "0.0.0.dev0"
