@@ -10,40 +10,128 @@ pip install tensory
 
 ## Install & Run
 
-### MCP Server (for Claude Code / Cursor)
+### 1. MCP Server — give your AI agent long-term memory
 
-Add to your MCP settings — one line, no install needed:
+No install needed. Add to your MCP config and restart:
+
+<details>
+<summary><b>Claude Code</b> — add to <code>.mcp.json</code> in your project root</summary>
 
 ```json
-"tensory": {
-  "command": "uvx",
-  "args": ["--from", "tensory[mcp]", "tensory-mcp"],
-  "env": {
-    "TENSORY_DB": "~/.local/share/tensory/memory.db",
-    "OPENAI_API_KEY": "sk-..."
+{
+  "mcpServers": {
+    "tensory": {
+      "command": "uvx",
+      "args": ["--from", "tensory[mcp]", "tensory-mcp"],
+      "env": {
+        "TENSORY_DB": "~/.local/share/tensory/memory.db",
+        "OPENAI_API_KEY": "sk-..."
+      }
+    }
+  }
+}
+```
+</details>
+
+<details>
+<summary><b>Cursor</b> — Settings → MCP Servers → Add</summary>
+
+```json
+{
+  "mcpServers": {
+    "tensory": {
+      "command": "uvx",
+      "args": ["--from", "tensory[mcp]", "tensory-mcp"],
+      "env": {
+        "TENSORY_DB": "~/.local/share/tensory/memory.db",
+        "OPENAI_API_KEY": "sk-..."
+      }
+    }
+  }
+}
+```
+</details>
+
+<details>
+<summary><b>Claude Desktop</b> — <code>claude_desktop_config.json</code></summary>
+
+```json
+{
+  "mcpServers": {
+    "tensory": {
+      "command": "uvx",
+      "args": ["--from", "tensory[mcp]", "tensory-mcp"],
+      "env": {
+        "TENSORY_DB": "~/.local/share/tensory/memory.db",
+        "OPENAI_API_KEY": "sk-..."
+      }
+    }
   }
 }
 ```
 
-### Dashboard (visualize your agent's memory)
+Config location:
+- macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- Windows: `%APPDATA%\Claude\claude_desktop_config.json`
+</details>
+
+**Environment variables:**
+
+| Variable | Required | Description |
+|----------|:--------:|-------------|
+| `TENSORY_DB` | Yes | Path to SQLite database file |
+| `OPENAI_API_KEY` | Recommended | For embeddings (vector search). Without it only FTS + graph search work |
+| `ANTHROPIC_API_KEY` | Optional | For `tensory_add()` claim extraction via LLM |
+| `ANTHROPIC_BASE_URL` | Optional | Proxy URL (CLIProxyAPI, LiteLLM, etc.) |
+
+After restart, your agent gets 7 tools: `tensory_add`, `tensory_remember`, `tensory_search`, `tensory_timeline`, `tensory_stats`, `tensory_health`, `tensory_reset`.
+
+### 2. Dashboard — see your agent's memory
 
 ```bash
-# One command, no install
+# One command, no install needed
 uvx --from "tensory[ui]" tensory-dashboard
 
-# With your MCP database
+# Point to your MCP database
 uvx --from "tensory[ui]" tensory-dashboard --db ~/.local/share/tensory/memory.db
 
-# Or via Docker (runs in background, always on)
+# Or via Docker (runs in background, restarts automatically)
 docker run -d -p 7770:7770 --name tensory-dashboard \
   -v ~/.local/share/tensory:/data \
   --restart unless-stopped \
   ghcr.io/tensory/tensory
 ```
 
-Open **http://localhost:7770** — graph explorer, claims browser, memory stats.
+Open **http://localhost:7770** — entity graph explorer, claims browser, memory stats.
 
-### As a library
+### 3. Agent System Prompt
+
+Add this to your agent's system prompt (or project rules) so it knows how to use tensory:
+
+```
+You have access to long-term memory via tensory MCP tools.
+
+STORING MEMORIES:
+- Use tensory_add(text) to store raw text — claims are extracted automatically
+- Use tensory_remember(claims) to store specific facts: [{"text": "...", "entities": ["..."], "type": "fact"}]
+- Claim types: "fact" (verifiable), "experience" (event), "observation" (inference), "opinion" (judgment)
+
+RETRIEVING MEMORIES:
+- Use tensory_search(query) before answering questions — check what you already know
+- Use tensory_timeline(entity) to see how facts about something changed over time
+
+WHEN TO STORE:
+- User shares new facts, preferences, or decisions
+- You learn something important from the conversation
+- A previous fact changed or was corrected
+
+WHEN TO SEARCH:
+- User asks about something discussed before
+- You need context from previous conversations
+- Before making assumptions — check memory first
+```
+
+### 4. As a Python library
 
 ```bash
 pip install tensory                # core (SQLite + search)
