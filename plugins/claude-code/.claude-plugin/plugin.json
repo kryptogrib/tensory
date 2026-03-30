@@ -12,19 +12,27 @@
   "hooks": "./hooks/hooks.json",
   "userConfig": {
     "OPENAI_API_KEY": {
-      "description": "OpenAI API key for embeddings (vector search). Without it only FTS + graph search work.",
+      "title": "OpenAI API Key",
+      "description": "For embeddings (vector search). Without it only FTS + graph search work.",
+      "type": "string",
       "sensitive": true
     },
     "ANTHROPIC_API_KEY": {
-      "description": "Anthropic API key for LLM claim extraction. Without it, raw text is stored as-is.",
+      "title": "Anthropic API Key",
+      "description": "For LLM claim extraction. Without it, raw text is stored as-is.",
+      "type": "string",
       "sensitive": true
     },
     "ANTHROPIC_BASE_URL": {
-      "description": "Anthropic proxy URL (CLIProxyAPI, LiteLLM, etc.)",
+      "title": "Anthropic Base URL",
+      "description": "Proxy URL (CLIProxyAPI, LiteLLM, etc.). Leave empty for direct API access.",
+      "type": "string",
       "sensitive": false
     },
     "TENSORY_DB": {
+      "title": "Database Path",
       "description": "Path to SQLite database file (default: ~/.local/share/tensory/memory.db)",
+      "type": "string",
       "sensitive": false
     }
   }
