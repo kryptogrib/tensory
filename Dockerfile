@@ -24,6 +24,10 @@ WORKDIR /app
 RUN pip install uv
 
 # Install Python deps
+# SETUPTOOLS_SCM_PRETEND_VERSION tells hatch-vcs the version
+# (no .git in Docker context)
+ARG SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0
+ENV SETUPTOOLS_SCM_PRETEND_VERSION=${SETUPTOOLS_SCM_PRETEND_VERSION}
 COPY pyproject.toml uv.lock ./
 RUN uv sync --extra ui --no-dev
 
