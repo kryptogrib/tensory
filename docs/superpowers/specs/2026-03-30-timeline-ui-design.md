@@ -61,8 +61,13 @@ GET /api/timeline/range
 
 Three new methods in `TensoryService`:
 
-- `get_entity_timeline(entity_name, include_superseded, limit)` — wraps `temporal.timeline()`
-- `get_graph_snapshot(at: datetime)` — SQL: claims WHERE `created_at <= at` AND (`superseded_at IS NULL OR superseded_at > at`); entities with at least one active claim = active; rest = ghost
+- `get_entity_timeline(entity_name, include_superseded, limit)` — wraps `temporal.timeline()`, enriches each claim with reverse supersede lookup: `supersedes` = the claim ID that this claim replaced (via `SELECT id FROM claims WHERE superseded_by = claim.id`)
+- `get_graph_snapshot(at: datetime)` — returns the state of the knowledge graph at a point in time:
+  - **Active nodes:** entities WHERE `first_seen <= at` (using `entities.first_seen` field)
+  - **Ghost nodes:** entities WHERE `first_seen > at` (will appear in the future)
+  - **Active claims:** claims WHERE `created_at <= at` AND (`superseded_at IS NULL OR superseded_at > at`)
+  - **Active edges:** entity_relations WHERE `created_at <= at` AND (`expired_at IS NULL OR expired_at > at`)
+  - **Stats:** count of active claims and superseded claims at that moment
 - `get_timeline_range()` — min/max `created_at` + histogram via `GROUP BY date(created_at)`
 
 ### New Models
@@ -70,19 +75,23 @@ Three new methods in `TensoryService`:
 ```python
 class TimelineEntry(BaseModel):
     claim: Claim
-    supersedes: str | None
-    superseded_by: str | None
+    supersedes: str | None  # ID of the claim that THIS claim replaced (reverse lookup)
+    # Note: claim.superseded_by already holds the forward link (who replaced me)
+
+class HistogramBucket(BaseModel):
+    date: str       # ISO date (YYYY-MM-DD)
+    count: int
 
 class GraphSnapshot(BaseModel):
-    active_nodes: list[EntityNode]
-    ghost_nodes: list[EntityNode]
-    edges: list[EdgeData]
-    stats: dict[str, int]
+    active_nodes: list[EntityNode]   # entities with first_seen <= at
+    ghost_nodes: list[EntityNode]    # entities with first_seen > at
+    edges: list[EdgeData]            # relations with created_at <= at AND (expired_at IS NULL OR expired_at > at)
+    stats: dict[str, int]            # {"claims": N, "superseded": M}
 
 class TimelineRange(BaseModel):
     min_date: datetime
     max_date: datetime
-    event_histogram: list[dict[str, Any]]
+    event_histogram: list[HistogramBucket]
 ```
 
 ## Frontend
@@ -132,21 +141,26 @@ ui/components/dashboard/GraphViewer.tsx    — refactor to use useGraphLayout()
 ```typescript
 interface TimelineEntry {
   claim: Claim
-  supersedes: string | null
-  superseded_by: string | null
+  supersedes: string | null      // ID of claim that THIS claim replaced (reverse lookup)
+  // Note: claim.superseded_by already holds the forward link
 }
 
 interface GraphSnapshot {
-  active_nodes: EntityNode[]
-  ghost_nodes: EntityNode[]
-  edges: EdgeData[]
+  active_nodes: EntityNode[]     // entities with first_seen <= at
+  ghost_nodes: EntityNode[]      // entities with first_seen > at
+  edges: EdgeData[]              // relations filtered by created_at/expired_at
   stats: { claims: number; superseded: number }
+}
+
+interface HistogramBucket {
+  date: string                   // ISO date (YYYY-MM-DD)
+  count: number
 }
 
 interface TimelineRange {
   min_date: string
   max_date: string
-  event_histogram: { date: string; count: number }[]
+  event_histogram: HistogramBucket[]
 }
 ```
 
