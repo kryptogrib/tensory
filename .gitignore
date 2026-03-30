@@ -27,3 +27,4 @@ tensory/_ui_static/
 tensory/_version.py
 ui/out/
 ui/.next/
+ui/public/*.mp3

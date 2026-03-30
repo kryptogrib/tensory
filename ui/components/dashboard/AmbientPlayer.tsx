@@ -3,7 +3,8 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Volume2, VolumeX } from "lucide-react";
 
-const AUDIO_SRC = "/Neural Embers.mp3";
+const AUDIO_SRC =
+  "https://github.com/kryptogrib/tensory/releases/download/assets-v1/Neural.Embers.mp3";
 const DEFAULT_VOLUME = 0.15;
 const MAX_VOLUME = 0.5;
 const FADE_DURATION_MS = 6000;
