@@ -80,3 +80,32 @@ async def test_entity_timeline_supersedes_reverse_lookup(
     new_entry = entry_map.get("claim-new")
     assert new_entry is not None
     assert new_entry.supersedes == "claim-old"
+
+
+async def test_graph_snapshot_filters_by_date(
+    service_with_timeline: TensoryService,
+) -> None:
+    now = datetime.now(timezone.utc)
+    early = now - timedelta(days=30)
+    snapshot = await service_with_timeline.get_graph_snapshot(early)
+    assert len(snapshot.active_nodes) == 0
+    assert len(snapshot.ghost_nodes) >= 1
+
+
+async def test_graph_snapshot_ghost_nodes(
+    service_with_timeline: TensoryService,
+) -> None:
+    now = datetime.now(timezone.utc)
+    snapshot = await service_with_timeline.get_graph_snapshot(now)
+    assert len(snapshot.active_nodes) >= 1
+    ghost_names = [n.name for n in snapshot.ghost_nodes]
+    active_names = [n.name for n in snapshot.active_nodes]
+    assert not set(ghost_names) & set(active_names)
+
+
+async def test_graph_snapshot_superseded_excluded(
+    service_with_timeline: TensoryService,
+) -> None:
+    now = datetime.now(timezone.utc)
+    snapshot = await service_with_timeline.get_graph_snapshot(now)
+    assert snapshot.stats["superseded"] >= 1

@@ -611,3 +611,97 @@ class TensoryService:
                 supersedes = str(row[0])
             entries.append(TimelineEntry(claim=claim, supersedes=supersedes))
         return entries
+
+    async def get_graph_snapshot(self, at: datetime) -> GraphSnapshot:
+        """Get the state of the knowledge graph at a point in time."""
+        db = self.store.db
+        assert db is not None
+        at_str = at.isoformat()
+
+        # Active entities: first_seen <= at
+        cursor = await db.execute(
+            "SELECT id, name, type, mention_count, first_seen FROM entities"
+            " WHERE first_seen <= ? ORDER BY mention_count DESC",
+            (at_str,),
+        )
+        active_rows = await cursor.fetchall()
+        active_nodes = [
+            EntityNode(
+                id=str(r[0]),
+                name=str(r[1]),
+                type=str(r[2]) if r[2] else None,
+                mention_count=int(r[3]),
+                first_seen=_parse_datetime(str(r[4])) or datetime.now(UTC),
+            )
+            for r in active_rows
+        ]
+
+        # Ghost entities: first_seen > at
+        cursor = await db.execute(
+            "SELECT id, name, type, mention_count, first_seen FROM entities"
+            " WHERE first_seen > ? ORDER BY first_seen ASC",
+            (at_str,),
+        )
+        ghost_rows = await cursor.fetchall()
+        ghost_nodes = [
+            EntityNode(
+                id=str(r[0]),
+                name=str(r[1]),
+                type=str(r[2]) if r[2] else None,
+                mention_count=int(r[3]),
+                first_seen=_parse_datetime(str(r[4])) or datetime.now(UTC),
+            )
+            for r in ghost_rows
+        ]
+
+        # Active edges
+        active_entity_ids = [n.id for n in active_nodes]
+        edges: list[EdgeData] = []
+        if active_entity_ids:
+            placeholders = ",".join("?" * len(active_entity_ids))
+            cursor = await db.execute(
+                f"""SELECT e1.name, e2.name, er.rel_type, er.fact,
+                           er.confidence, er.created_at, er.expired_at
+                    FROM entity_relations er
+                    JOIN entities e1 ON er.from_entity = e1.id
+                    JOIN entities e2 ON er.to_entity = e2.id
+                    WHERE er.created_at <= ?
+                      AND (er.expired_at IS NULL OR er.expired_at > ?)
+                      AND er.from_entity IN ({placeholders})
+                      AND er.to_entity IN ({placeholders})""",
+                (at_str, at_str, *active_entity_ids, *active_entity_ids),
+            )
+            edge_rows = await cursor.fetchall()
+            edges = [
+                EdgeData(
+                    from_entity=str(r[0]),
+                    to_entity=str(r[1]),
+                    rel_type=str(r[2]) if r[2] else "",
+                    fact=str(r[3]) if r[3] else "",
+                    confidence=float(r[4]) if r[4] else 0.0,
+                    created_at=_parse_datetime(str(r[5])) or datetime.now(UTC),
+                    expired_at=_parse_datetime(str(r[6])) if r[6] else None,
+                )
+                for r in edge_rows
+            ]
+
+        # Stats
+        cursor = await db.execute(
+            "SELECT COUNT(*) FROM claims WHERE created_at <= ?", (at_str,)
+        )
+        total_row = await cursor.fetchone()
+        total_claims = int(total_row[0]) if total_row else 0
+        cursor = await db.execute(
+            "SELECT COUNT(*) FROM claims WHERE created_at <= ?"
+            " AND superseded_at IS NOT NULL AND superseded_at <= ?",
+            (at_str, at_str),
+        )
+        sup_row = await cursor.fetchone()
+        superseded = int(sup_row[0]) if sup_row else 0
+
+        return GraphSnapshot(
+            active_nodes=active_nodes,
+            ghost_nodes=ghost_nodes,
+            edges=edges,
+            stats={"claims": total_claims, "superseded": superseded},
+        )
