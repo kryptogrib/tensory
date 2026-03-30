@@ -1,16 +1,27 @@
 {
+  "name": "tensory-plugins",
+  "owner": {
+    "name": "kryptogrib",
+    "url": "https://github.com/kryptogrib"
+  },
+  "metadata": {
+    "description": "Context-aware memory for AI agents. Automatic recall and save via hooks.",
+    "version": "1.0.0"
+  },
   "plugins": [
     {
       "name": "tensory",
-      "version": "0.1.0",
       "description": "Automatic long-term memory for coding agents. Recalls context on session start, saves learnings automatically.",
-      "source": {
-        "source": "github",
-        "repo": "kryptogrib/tensory",
-        "path": "plugins/claude-code"
+      "version": "0.1.0",
+      "source": "./plugins/claude-code",
+      "category": "productivity",
+      "author": {
+        "name": "kryptogrib"
       },
-      "keywords": ["memory", "context", "claims", "knowledge-graph"],
-      "license": "MIT"
+      "homepage": "https://github.com/kryptogrib/tensory",
+      "repository": "https://github.com/kryptogrib/tensory",
+      "license": "MIT",
+      "keywords": ["memory", "context", "claims", "knowledge-graph"]
     }
   ]
 }
