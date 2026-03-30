@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, List, Settings } from "lucide-react";
+import { LayoutDashboard, List, Clock, Settings } from "lucide-react";
 import { AmbientPlayer } from "./AmbientPlayer";
 
 const NAV_ITEMS = [
   { href: "/", icon: LayoutDashboard, label: "Home" },
   { href: "/claims", icon: List, label: "Claims" },
+  { href: "/timeline", icon: Clock, label: "Timeline" },
 ] as const;
 
 export function Sidebar() {
