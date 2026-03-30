@@ -97,6 +97,37 @@ class ClaimDetail(BaseModel):
     related_entities: list[EntityRelation]
 
 
+class TimelineEntry(BaseModel):
+    """A claim in an entity's timeline, enriched with supersede chain info."""
+
+    claim: Claim
+    supersedes: str | None = None  # ID of claim THIS claim replaced
+
+
+class HistogramBucket(BaseModel):
+    """One bar in the event histogram."""
+
+    date: str  # ISO date YYYY-MM-DD
+    count: int
+
+
+class GraphSnapshot(BaseModel):
+    """State of the knowledge graph at a point in time."""
+
+    active_nodes: list[EntityNode]
+    ghost_nodes: list[EntityNode]
+    edges: list[EdgeData]
+    stats: dict[str, int]
+
+
+class TimelineRange(BaseModel):
+    """Min/max dates and event histogram for the timeline slider."""
+
+    min_date: str  # ISO datetime
+    max_date: str  # ISO datetime
+    event_histogram: list[HistogramBucket]
+
+
 # ── Helpers ──────────────────────────────────────────────────────────────
 
 
