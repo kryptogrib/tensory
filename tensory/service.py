@@ -584,3 +584,30 @@ class TensoryService:
             claim = await _row_to_claim(row_dict, entities)
             claims.append(claim)
         return claims
+
+    async def get_entity_timeline(
+        self,
+        entity_name: str,
+        *,
+        include_superseded: bool = True,
+        limit: int = 50,
+    ) -> list[TimelineEntry]:
+        """Get chronological timeline of claims for an entity."""
+        from tensory.temporal import timeline as _timeline
+
+        db = self.store.db
+        assert db is not None
+        claims = await _timeline(
+            entity_name, db, include_superseded=include_superseded, limit=limit
+        )
+        entries: list[TimelineEntry] = []
+        for claim in claims:
+            supersedes: str | None = None
+            cursor = await db.execute(
+                "SELECT id FROM claims WHERE superseded_by = ?", (claim.id,)
+            )
+            row = await cursor.fetchone()
+            if row:
+                supersedes = str(row[0])
+            entries.append(TimelineEntry(claim=claim, supersedes=supersedes))
+        return entries
