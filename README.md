@@ -10,92 +10,49 @@ pip install tensory
 
 ## Install & Run
 
-### 1. MCP Server — give your AI agent long-term memory
+### 1. Claude Code Plugin — automatic memory (recommended)
 
-No install needed. Add to your MCP config and restart:
+Memory works automatically — no tool descriptions in context, no "please search memory":
 
-<details>
-<summary><b>Claude Code</b> — add to <code>.mcp.json</code> in your project root</summary>
-
-```json
-{
-  "mcpServers": {
-    "tensory": {
-      "command": "uvx",
-      "args": ["--from", "tensory[mcp]", "tensory-mcp"],
-      "env": {
-        "TENSORY_DB": "~/.local/share/tensory/memory.db",
-        "OPENAI_API_KEY": "sk-..."
-      }
-    }
-  }
-}
-```
-</details>
-
-<details>
-<summary><b>Cursor</b> — Settings → MCP Servers → Add</summary>
-
-```json
-{
-  "mcpServers": {
-    "tensory": {
-      "command": "uvx",
-      "args": ["--from", "tensory[mcp]", "tensory-mcp"],
-      "env": {
-        "TENSORY_DB": "~/.local/share/tensory/memory.db",
-        "OPENAI_API_KEY": "sk-..."
-      }
-    }
-  }
-}
-```
-</details>
-
-<details>
-<summary><b>Claude Desktop</b> — <code>claude_desktop_config.json</code></summary>
-
-```json
-{
-  "mcpServers": {
-    "tensory": {
-      "command": "uvx",
-      "args": ["--from", "tensory[mcp]", "tensory-mcp"],
-      "env": {
-        "TENSORY_DB": "~/.local/share/tensory/memory.db",
-        "OPENAI_API_KEY": "sk-..."
-      }
-    }
-  }
-}
+```bash
+claude plugin install --source github kryptogrib/tensory --path plugins/claude-code
 ```
 
-Config location:
-- macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
-- Windows: `%APPDATA%\Claude\claude_desktop_config.json`
-</details>
+On install, Claude Code will ask for your API keys. That's it — memory is active.
 
-**Environment variables:**
+**Or ask your agent to install it.** Send this prompt:
 
-| Variable | Required | Description |
-|----------|:--------:|-------------|
-| `TENSORY_DB` | Yes | Path to SQLite database file |
-| `OPENAI_API_KEY` | Recommended | For embeddings (vector search). Without it only FTS + graph search work |
-| `ANTHROPIC_API_KEY` | Optional | For `tensory_add()` claim extraction via LLM |
-| `ANTHROPIC_BASE_URL` | Optional | Proxy URL (CLIProxyAPI, LiteLLM, etc.) |
+> Install the tensory plugin for long-term memory. Run:
+>
+> ```
+> claude plugin install --source github kryptogrib/tensory --path plugins/claude-code
+> ```
+>
+> When prompted, enter these env vars:
+> - `OPENAI_API_KEY` — your OpenAI key (for embeddings / vector search)
+> - `ANTHROPIC_API_KEY` — your Anthropic key (for LLM claim extraction)
+> - `TENSORY_DB` — leave default (`~/.local/share/tensory/memory.db`)
+>
+> After install, restart the session. Memory now works automatically:
+> - Session start → recalls relevant context from past sessions
+> - Session end → saves what was learned (claims, decisions, facts)
 
-After restart, your agent gets 7 tools: `tensory_add`, `tensory_remember`, `tensory_search`, `tensory_timeline`, `tensory_stats`, `tensory_health`, `tensory_reset`.
+**How it works:**
+
+| Hook | When | What happens |
+|------|------|-------------|
+| `SessionStart` | Session opens | Searches memory for project context → injects into Claude's context window |
+| `Stop` | Claude finishes responding | Extracts claims from conversation → stores with collision detection |
 
 ### 2. Dashboard — see your agent's memory
 
 ```bash
-# One command, no install needed
-uvx --from "tensory[ui]" tensory-dashboard
-
-# Point to your MCP database
 uvx --from "tensory[ui]" tensory-dashboard --db ~/.local/share/tensory/memory.db
+```
 
-# Or via Docker (runs in background, restarts automatically)
+Or via Docker:
+
+```bash
 docker run -d -p 7770:7770 --name tensory-dashboard \
   -v ~/.local/share/tensory:/data \
   --restart unless-stopped \
@@ -104,98 +61,46 @@ docker run -d -p 7770:7770 --name tensory-dashboard \
 
 Open **http://localhost:7770** — entity graph explorer, claims browser, memory stats.
 
-### 3. Agent Self-Install Prompt
-
-Send this to your AI agent (Claude Code, Cursor, etc.) — it will install tensory MCP and hooks itself:
-
-> Install the tensory MCP server for long-term memory. Do two things:
->
-> **Step 1.** Add MCP server to `.mcp.json` in the project root:
->
-> ```json
-> {
->   "mcpServers": {
->     "tensory": {
->       "command": "uvx",
->       "args": ["--from", "tensory[mcp]", "tensory-mcp"],
->       "env": {
->         "TENSORY_DB": "~/.local/share/tensory/memory.db",
->         "OPENAI_API_KEY": "your-key"
->       }
->     }
->   }
-> }
-> ```
->
-> **Step 2.** Add hooks to `.claude/settings.json` for automatic memory recall and save:
->
-> ```json
-> {
->   "hooks": {
->     "UserPromptSubmit": [
->       {
->         "hooks": [{
->           "type": "command",
->           "command": "uvx --from tensory tensory-recall \"$USER_PROMPT\""
->         }]
->       }
->     ],
->     "Stop": [
->       {
->         "hooks": [{
->           "type": "command",
->           "command": "uvx --from tensory tensory-save"
->         }]
->       }
->     ]
->   }
-> }
-> ```
->
-> `OPENAI_API_KEY` enables vector search (embeddings). Without it, only text + graph search work — still useful but less accurate.
->
-> After creating `.mcp.json`, verify with `tensory_health` tool. You now have 7 tools:
-> - `tensory_add(text)` — store raw text, claims extracted automatically
-> - `tensory_remember(claims)` — store specific facts: `[{"text": "...", "entities": ["..."], "type": "fact"}]`
-> - `tensory_search(query)` — hybrid search across all memories
-> - `tensory_timeline(entity)` — see how facts evolved over time
-> - `tensory_stats()` — memory database stats
-> - `tensory_health()` — check which components are active
-> - `tensory_reset()` — clear all memory (careful!)
->
-> **How it works with hooks:**
-> - `UserPromptSubmit` — before each message, searches memory for relevant facts and injects them as context. The agent sees past knowledge immediately without tool calls.
-> - `Stop` — when the session ends, saves a summary of the conversation to memory. Nothing is lost between sessions.
-
-### Agent System Prompt
-
-Add this to your agent's system prompt or project rules (e.g., `CLAUDE.md`) so it knows how to use memory:
-
-```
-You have long-term memory via tensory MCP tools. Memory hooks automatically search
-before each prompt and save on session end — but you should also actively use tools.
-
-STORING: Use tensory_remember to store facts, decisions, and preferences:
-  [{"text": "User prefers dark mode", "entities": ["User"], "type": "fact"}]
-Claim types: "fact" (verifiable), "experience" (event), "observation" (inference), "opinion" (judgment)
-
-RETRIEVING: Use tensory_search BEFORE answering questions about past work or user preferences.
-Use tensory_timeline to see how facts about something changed over time.
-
-WHEN TO STORE: User shares preferences, decisions, or important context. A fact changed
-or was corrected. You learned something important from the conversation.
-WHEN TO SEARCH: User asks about something discussed before. You need context from
-previous sessions. Before making assumptions — check memory first.
-```
-
-### 4. As a Python library
+### 3. As a Python library
 
 ```bash
 pip install tensory                # core (SQLite + search)
-pip install "tensory[mcp]"         # + MCP server
+pip install "tensory[mcp]"         # + MCP server + plugin hooks
 pip install "tensory[ui]"          # + dashboard
 pip install "tensory[all]"         # everything
 ```
+
+<details>
+<summary><b>Alternative: MCP Server</b> — for Claude Desktop, Cursor, and other MCP clients</summary>
+
+If your client doesn't support plugins/hooks, use the MCP server directly:
+
+```json
+{
+  "mcpServers": {
+    "tensory": {
+      "command": "uvx",
+      "args": ["--from", "tensory[mcp]", "tensory-mcp"],
+      "env": {
+        "TENSORY_DB": "~/.local/share/tensory/memory.db",
+        "OPENAI_API_KEY": "sk-..."
+      }
+    }
+  }
+}
+```
+
+| Variable | Required | Description |
+|----------|:--------:|-------------|
+| `TENSORY_DB` | Yes | Path to SQLite database file |
+| `OPENAI_API_KEY` | Recommended | For embeddings (vector search) |
+| `ANTHROPIC_API_KEY` | Optional | For claim extraction via LLM |
+| `ANTHROPIC_BASE_URL` | Optional | Proxy URL (CLIProxyAPI, LiteLLM) |
+
+Provides 7 tools: `tensory_add`, `tensory_remember`, `tensory_search`, `tensory_timeline`, `tensory_stats`, `tensory_health`, `tensory_reset`.
+
+> **Note:** The plugin approach is preferred over MCP because hooks work automatically — MCP tools require the agent to decide to call them, and their descriptions consume context tokens on every message.
+</details>
 
 ## Why not existing solutions?
 

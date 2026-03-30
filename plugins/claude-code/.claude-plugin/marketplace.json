@@ -1,0 +1,16 @@
+{
+  "plugins": [
+    {
+      "name": "tensory",
+      "version": "0.1.0",
+      "description": "Automatic long-term memory for coding agents. Recalls context on session start, saves learnings automatically.",
+      "source": {
+        "source": "github",
+        "repo": "kryptogrib/tensory",
+        "path": "plugins/claude-code"
+      },
+      "keywords": ["memory", "context", "claims", "knowledge-graph"],
+      "license": "MIT"
+    }
+  ]
+}

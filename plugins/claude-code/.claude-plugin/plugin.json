@@ -1,0 +1,31 @@
+{
+  "name": "tensory",
+  "version": "0.1.0",
+  "description": "Automatic long-term memory for coding agents. Recalls context on session start, saves learnings automatically.",
+  "author": {
+    "name": "kryptogrib",
+    "url": "https://github.com/kryptogrib"
+  },
+  "repository": "https://github.com/kryptogrib/tensory",
+  "license": "MIT",
+  "keywords": ["memory", "context", "claims", "knowledge-graph"],
+  "hooks": "./hooks/hooks.json",
+  "userConfig": {
+    "OPENAI_API_KEY": {
+      "description": "OpenAI API key for embeddings (vector search). Without it only FTS + graph search work.",
+      "sensitive": true
+    },
+    "ANTHROPIC_API_KEY": {
+      "description": "Anthropic API key for LLM claim extraction. Without it, raw text is stored as-is.",
+      "sensitive": true
+    },
+    "ANTHROPIC_BASE_URL": {
+      "description": "Anthropic proxy URL (CLIProxyAPI, LiteLLM, etc.)",
+      "sensitive": false
+    },
+    "TENSORY_DB": {
+      "description": "Path to SQLite database file (default: ~/.local/share/tensory/memory.db)",
+      "sensitive": false
+    }
+  }
+}
