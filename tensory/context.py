@@ -124,16 +124,21 @@ def _build_annotation(
     result: SearchResult,
     id_to_index: dict[str, int],
 ) -> str:
-    """Build temporal + status annotation for a single claim.
+    """Build full annotation: score + type + temporal + status.
 
     Examples:
-        "Jan 2024→"              — valid from, still active
-        "Jan-Mar 2024, OUTDATED" — valid range, superseded
-        "Q1 2024"                — from temporal field
-        "May 2024"               — fallback to created_at
+        "score=0.87, fact, Jan 2024→"
+        "score=0.72, fact, Jan-Mar 2024, OUTDATED, replaced by #2"
+        "score=0.90, experience, Q1 2024"
     """
     claim = result.claim
     parts: list[str] = []
+
+    # Score (always present)
+    parts.append(f"score={result.score:.2f}")
+
+    # Claim type (fact/experience/observation/opinion)
+    parts.append(claim.type.value)
 
     # Temporal range
     temporal_str = _format_temporal(claim)

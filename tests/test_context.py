@@ -50,9 +50,24 @@ class TestFlatFormat:
 
     def test_single_claim_flat(self) -> None:
         claim = _make_claim("Alice works at Acme", entities=["Alice", "Acme"])
-        result = format_context([_make_result(claim)])
+        result = format_context([_make_result(claim, score=0.87)])
         assert "1." in result
         assert "Alice works at Acme" in result
+
+    def test_score_in_annotation(self) -> None:
+        claim = _make_claim("Some fact", entities=["X"])
+        result = format_context([_make_result(claim, score=0.85)])
+        assert "score=0.85" in result
+
+    def test_claim_type_in_annotation(self) -> None:
+        claim = _make_claim("An event", claim_type=ClaimType.EXPERIENCE)
+        result = format_context([_make_result(claim)])
+        assert "experience" in result
+
+    def test_opinion_type_in_annotation(self) -> None:
+        claim = _make_claim("I think X", claim_type=ClaimType.OPINION)
+        result = format_context([_make_result(claim)])
+        assert "opinion" in result
 
     def test_temporal_annotation_from_valid_from(self) -> None:
         claim = _make_claim(
