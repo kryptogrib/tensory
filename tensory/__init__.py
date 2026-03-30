@@ -12,8 +12,10 @@ Usage::
     results = await store.search("ETH")
 """
 
+from tensory.context import format_context
 from tensory.embedder import Embedder, NullEmbedder, OpenAIEmbedder
 from tensory.extract import LLMProtocol
+from tensory.routing import classify_query
 from tensory.graph import GraphBackend, Neo4jBackend, SQLiteGraphBackend
 from tensory.models import (
     Claim,
@@ -57,6 +59,9 @@ __all__ = [
     "GraphBackend",
     "SQLiteGraphBackend",
     "Neo4jBackend",
+    # Context formatting
+    "format_context",
+    "classify_query",
 ]
 
 try:
