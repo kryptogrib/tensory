@@ -122,7 +122,10 @@ async def hybrid_search(
 
     # MMR reranking for diversity (falls back to entity cap if no embeddings)
     return await _mmr_rerank(
-        merged, query_embedding=embedding, db=db, limit=limit,
+        merged,
+        query_embedding=embedding,
+        db=db,
+        limit=limit,
     )
 
 
@@ -493,9 +496,7 @@ async def _mmr_rerank(
             # Redundancy: max similarity to any already-selected
             redundancy = 0.0
             if selected_embs:
-                redundancy = max(
-                    _cosine_sim(emb, s_emb) for s_emb in selected_embs
-                )
+                redundancy = max(_cosine_sim(emb, s_emb) for s_emb in selected_embs)
 
             # MMR score
             score = mmr_lambda * relevance - (1 - mmr_lambda) * redundancy
@@ -547,9 +548,7 @@ async def _entity_diverse_filter(
 
         entities = claim_entities.get(r.claim.id, [])
 
-        if entities and all(
-            entity_counts.get(e, 0) >= max_per_entity for e in entities
-        ):
+        if entities and all(entity_counts.get(e, 0) >= max_per_entity for e in entities):
             continue
 
         diverse.append(r)

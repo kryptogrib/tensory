@@ -128,9 +128,7 @@ class TestNumberExtraction:
         texts = [c.text.lower() for c in result.claims]
         all_text = " ".join(texts)
         has_number = any(n in all_text for n in ["2", "two", "3", "three", "youngest", "oldest"])
-        assert has_number, (
-            f"No child count extracted. Claims: {[c.text for c in result.claims]}"
-        )
+        assert has_number, f"No child count extracted. Claims: {[c.text for c in result.claims]}"
 
     async def test_beach_frequency_preserved(self, store: Tensory) -> None:
         """'once or twice a year' frequency should be extracted."""

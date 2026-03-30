@@ -110,12 +110,7 @@ CROSS_ENTITY_CLAIMS = [
     "Melanie and Caroline support each other",
 ]
 
-ALL_CLAIMS = (
-    MELANIE_KIDS_CLAIMS
-    + MELANIE_SPECIFIC_CLAIMS
-    + CAROLINE_CLAIMS
-    + CROSS_ENTITY_CLAIMS
-)
+ALL_CLAIMS = MELANIE_KIDS_CLAIMS + MELANIE_SPECIFIC_CLAIMS + CAROLINE_CLAIMS + CROSS_ENTITY_CLAIMS
 
 
 # ── Fixture ──────────────────────────────────────────────────────────────
@@ -165,58 +160,43 @@ def any_contains(texts: list[str], substring: str) -> bool:
 class TestEntityCrowding:
     """Verify that entity crowding doesn't push relevant claims out of top-k."""
 
-    async def test_instruments_not_crowded_by_kids(
-        self, store_with_claims: Tensory
-    ) -> None:
+    async def test_instruments_not_crowded_by_kids(self, store_with_claims: Tensory) -> None:
         """'Melanie clarinet' should find clarinet claim, not just kids."""
         # Use keyword that exists in target claim (FakeEmbedder is hash-based,
         # not semantically aware — "instruments" won't match "clarinet")
-        results = await store_with_claims.search(
-            "Melanie clarinet instrument", limit=5
-        )
+        results = await store_with_claims.search("Melanie clarinet instrument", limit=5)
         texts = top_texts(results)
-        assert any_contains(texts, "clarinet"), (
-            f"'clarinet' not in top-5. Got: {texts}"
-        )
+        assert any_contains(texts, "clarinet"), f"'clarinet' not in top-5. Got: {texts}"
 
-    async def test_books_not_crowded_by_kids(
-        self, store_with_claims: Tensory
-    ) -> None:
+    async def test_books_not_crowded_by_kids(self, store_with_claims: Tensory) -> None:
         """'What books has Melanie read?' should find book claims."""
-        results = await store_with_claims.search(
-            "What books has Melanie read?", limit=5
-        )
+        results = await store_with_claims.search("What books has Melanie read?", limit=5)
         texts = top_texts(results)
         assert any_contains(texts, "Charlotte's Web") or any_contains(texts, "book"), (
             f"No book-related claim in top-5. Got: {texts}"
         )
 
-    async def test_activities_shows_variety(
-        self, store_with_claims: Tensory
-    ) -> None:
+    async def test_activities_shows_variety(self, store_with_claims: Tensory) -> None:
         """Melanie query should show diverse results, not all kids claims."""
-        results = await store_with_claims.search(
-            "Melanie activities hobbies", limit=10
-        )
+        results = await store_with_claims.search("Melanie activities hobbies", limit=10)
         texts = top_texts(results, k=10)
         # Entity diversity should prevent kids-only results
-        kids_count = sum(1 for t in texts if "kids" in t.lower() or "children" in t.lower() or "mother" in t.lower())
+        kids_count = sum(
+            1
+            for t in texts
+            if "kids" in t.lower() or "children" in t.lower() or "mother" in t.lower()
+        )
         assert kids_count <= 5, (
-            f"Too many kids claims ({kids_count}/10). "
-            f"Entity diversity not working. Got: {texts}"
+            f"Too many kids claims ({kids_count}/10). Entity diversity not working. Got: {texts}"
         )
 
-    async def test_beach_not_dominated_by_generic(
-        self, store_with_claims: Tensory
-    ) -> None:
+    async def test_beach_not_dominated_by_generic(self, store_with_claims: Tensory) -> None:
         """Beach query should find beach claims, not generic Melanie claims."""
         results = await store_with_claims.search(
             "How many times has Melanie gone to the beach?", limit=5
         )
         texts = top_texts(results)
-        assert any_contains(texts, "beach"), (
-            f"'beach' not in top-5. Got: {texts}"
-        )
+        assert any_contains(texts, "beach"), f"'beach' not in top-5. Got: {texts}"
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -229,30 +209,24 @@ class TestEntityCrowding:
 class TestCrossEntity:
     """Verify search works for queries involving multiple entities."""
 
-    async def test_book_recommendation(
-        self, store_with_claims: Tensory
-    ) -> None:
+    async def test_book_recommendation(self, store_with_claims: Tensory) -> None:
         """'What book did Caroline recommend to Melanie?' should find the rec."""
         results = await store_with_claims.search(
             "What book did Caroline recommend to Melanie?", limit=5
         )
         texts = top_texts(results)
-        assert any_contains(texts, "recommend"), (
-            f"'recommend' not in top-5. Got: {texts}"
-        )
+        assert any_contains(texts, "recommend"), f"'recommend' not in top-5. Got: {texts}"
 
-    async def test_both_painted(
-        self, store_with_claims: Tensory
-    ) -> None:
+    async def test_both_painted(self, store_with_claims: Tensory) -> None:
         """Painting query should surface painting-related claims."""
-        results = await store_with_claims.search(
-            "painting art painted", limit=10
-        )
+        results = await store_with_claims.search("painting art painted", limit=10)
         texts = top_texts(results, k=10)
-        has_art = any_contains(texts, "painting") or any_contains(texts, "art") or any_contains(texts, "portrait")
-        assert has_art, (
-            f"No art-related claim in top-10. Got: {texts}"
+        has_art = (
+            any_contains(texts, "painting")
+            or any_contains(texts, "art")
+            or any_contains(texts, "portrait")
         )
+        assert has_art, f"No art-related claim in top-10. Got: {texts}"
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -265,34 +239,22 @@ class TestCrossEntity:
 class TestSpecificRetrieval:
     """Verify specific facts are retrievable."""
 
-    async def test_becoming_nicole(
-        self, store_with_claims: Tensory
-    ) -> None:
+    async def test_becoming_nicole(self, store_with_claims: Tensory) -> None:
         """Book title should be retrievable via exact title search."""
         # FTS5 should match the exact title directly
-        results = await store_with_claims.search(
-            "Becoming Nicole Amy Ellis Nutt", limit=5
-        )
+        results = await store_with_claims.search("Becoming Nicole Amy Ellis Nutt", limit=5)
         texts = top_texts(results)
-        assert any_contains(texts, "Becoming Nicole"), (
-            f"'Becoming Nicole' not found. Got: {texts}"
-        )
+        assert any_contains(texts, "Becoming Nicole"), f"'Becoming Nicole' not found. Got: {texts}"
 
-    async def test_self_portrait_date(
-        self, store_with_claims: Tensory
-    ) -> None:
+    async def test_self_portrait_date(self, store_with_claims: Tensory) -> None:
         """Self-portrait search should find the claim."""
-        results = await store_with_claims.search(
-            "Caroline self-portrait painting blue", limit=5
-        )
+        results = await store_with_claims.search("Caroline self-portrait painting blue", limit=5)
         texts = top_texts(results)
         assert any_contains(texts, "self-portrait") or any_contains(texts, "portrait"), (
             f"'self-portrait' not in top-5. Got: {texts}"
         )
 
-    async def test_sunflower_meaning(
-        self, store_with_claims: Tensory
-    ) -> None:
+    async def test_sunflower_meaning(self, store_with_claims: Tensory) -> None:
         """Sunflower symbolism should be retrievable."""
         results = await store_with_claims.search(
             "What do sunflowers represent according to Caroline?", limit=5
@@ -302,21 +264,13 @@ class TestSpecificRetrieval:
             f"Sunflower claim not in top-5. Got: {texts}"
         )
 
-    async def test_pottery_workshop(
-        self, store_with_claims: Tensory
-    ) -> None:
+    async def test_pottery_workshop(self, store_with_claims: Tensory) -> None:
         """Pottery search should find pottery claims."""
-        results = await store_with_claims.search(
-            "pottery workshop clay pots", limit=5
-        )
+        results = await store_with_claims.search("pottery workshop clay pots", limit=5)
         texts = top_texts(results)
-        assert any_contains(texts, "pottery"), (
-            f"'pottery' not in top-5. Got: {texts}"
-        )
+        assert any_contains(texts, "pottery"), f"'pottery' not in top-5. Got: {texts}"
 
-    async def test_relationship_status(
-        self, store_with_claims: Tensory
-    ) -> None:
+    async def test_relationship_status(self, store_with_claims: Tensory) -> None:
         """Breakup claim should be findable via direct keyword."""
         results = await store_with_claims.search("breakup", limit=10)
         texts = top_texts(results, k=10)
@@ -335,22 +289,16 @@ class TestSpecificRetrieval:
 class TestAggregation:
     """Verify that aggregation queries return all relevant claims."""
 
-    async def test_children_count(
-        self, store_with_claims: Tensory
-    ) -> None:
+    async def test_children_count(self, store_with_claims: Tensory) -> None:
         """'How many children?' should find the claim with actual count."""
-        results = await store_with_claims.search(
-            "How many children does Melanie have?", limit=5
-        )
+        results = await store_with_claims.search("How many children does Melanie have?", limit=5)
         texts = top_texts(results)
         # The "2 younger children" claim has the actual number
         assert any_contains(texts, "2") or any_contains(texts, "two"), (
             f"Numeric children count not in top-5. Got: {texts}"
         )
 
-    async def test_beach_visits_2023(
-        self, store_with_claims: Tensory
-    ) -> None:
+    async def test_beach_visits_2023(self, store_with_claims: Tensory) -> None:
         """Beach visit count should find frequency AND specific visits."""
         results = await store_with_claims.search(
             "How many times has Melanie gone to the beach in 2023?", limit=5

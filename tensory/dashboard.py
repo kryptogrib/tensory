@@ -32,7 +32,8 @@ def main() -> None:
         description="Launch the Tensory memory dashboard (API + UI).",
     )
     parser.add_argument(
-        "--port", "-p",
+        "--port",
+        "-p",
         type=int,
         default=int(os.getenv("TENSORY_DASHBOARD_PORT", "7770")),
         help="Port to serve on (default: 7770)",
