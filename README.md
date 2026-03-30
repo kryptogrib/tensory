@@ -8,6 +8,50 @@
 pip install tensory
 ```
 
+## Install & Run
+
+### MCP Server (for Claude Code / Cursor)
+
+Add to your MCP settings — one line, no install needed:
+
+```json
+"tensory": {
+  "command": "uvx",
+  "args": ["--from", "tensory[mcp]", "tensory-mcp"],
+  "env": {
+    "TENSORY_DB": "~/.local/share/tensory/memory.db",
+    "OPENAI_API_KEY": "sk-..."
+  }
+}
+```
+
+### Dashboard (visualize your agent's memory)
+
+```bash
+# One command, no install
+uvx --from "tensory[ui]" tensory-dashboard
+
+# With your MCP database
+uvx --from "tensory[ui]" tensory-dashboard --db ~/.local/share/tensory/memory.db
+
+# Or via Docker (runs in background, always on)
+docker run -d -p 7770:7770 --name tensory-dashboard \
+  -v ~/.local/share/tensory:/data \
+  --restart unless-stopped \
+  ghcr.io/tensory/tensory
+```
+
+Open **http://localhost:7770** — graph explorer, claims browser, memory stats.
+
+### As a library
+
+```bash
+pip install tensory                # core (SQLite + search)
+pip install "tensory[mcp]"         # + MCP server
+pip install "tensory[ui]"          # + dashboard
+pip install "tensory[all]"         # everything
+```
+
 ## Why not existing solutions?
 
 | Library | What's great | What didn't work for me |
@@ -249,7 +293,7 @@ Tensory extraction cost per conversation: **~$0.12** (Haiku extraction + OpenAI 
 
 ## Status
 
-**Active development.** 246 tests, pyright strict, ruff clean, CI on every push.
+**Active development.** 275+ tests, pyright strict, ruff clean, CI on every push.
 
 The vision: become the **best open-source memory for AI agents** — a single-file SQLite database that gives your agent real long-term memory with contradiction detection, temporal reasoning, and cognitive mechanisms that work without LLM calls.
 
@@ -261,6 +305,8 @@ The vision: become the **best open-source memory for AI agents** — a single-fi
 - Context-aware extraction (same text, different lens → different claims)
 - Topic segmentation for long texts (parallel extraction)
 - MCP server for tool-use integration
+- Smart context formatting (entity grouping, temporal annotations, memory-type routing)
+- Web dashboard (graph explorer, claims browser, stats)
 - LoCoMo benchmark integration (AMB provider with exact cost tracking)
 
 ### What's next
@@ -275,7 +321,7 @@ The vision: become the **best open-source memory for AI agents** — a single-fi
 
 ```bash
 uv sync --all-extras                    # Install all deps
-uv run pytest tests/                    # Run all 246 tests
+uv run pytest tests/                    # Run all tests (~275)
 uv run pytest tests/test_store.py::test_name   # Single test
 uv run pyright tensory/                 # Type check (strict mode)
 uv run ruff check tensory/ tests/       # Lint
