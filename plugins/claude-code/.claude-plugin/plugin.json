@@ -9,7 +9,6 @@
   "repository": "https://github.com/kryptogrib/tensory",
   "license": "MIT",
   "keywords": ["memory", "context", "claims", "knowledge-graph"],
-  "hooks": "./hooks/hooks.json",
   "userConfig": {
     "OPENAI_API_KEY": {
       "title": "OpenAI API Key",
