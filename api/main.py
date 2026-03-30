@@ -24,7 +24,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from api.dependencies import get_service, set_service
-from api.routers import claims, graph, stats
+from api.routers import claims, graph, stats, timeline
 from tensory.service import TensoryService
 from tensory.store import Tensory
 
@@ -74,6 +74,7 @@ def create_app(*, service: TensoryService | None = None) -> FastAPI:
     application.include_router(stats.router, prefix="/api")
     application.include_router(claims.router, prefix="/api")
     application.include_router(graph.router, prefix="/api")
+    application.include_router(timeline.router, prefix="/api")
 
     # Serve UI static files if available (Next.js export build)
     ui_dir = Path(os.getenv("TENSORY_UI_DIR", str(_UI_STATIC_DIR)))

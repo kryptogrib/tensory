@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from collections.abc import AsyncIterator
+from datetime import UTC, datetime, timedelta
 
 import pytest
+from httpx import ASGITransport, AsyncClient
 
+from api.dependencies import set_service
+from api.main import create_app
 from tensory.models import Claim, ClaimType
-from tensory.service import TensoryService, TimelineEntry
+from tensory.service import TensoryService
 from tensory.store import Tensory
 
 
@@ -15,7 +19,7 @@ from tensory.store import Tensory
 async def service_with_timeline() -> TensoryService:
     """Service with claims that form a supersede chain."""
     store = await Tensory.create(":memory:")
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     old_claim = Claim(
         id="claim-old",
         text="ETH price is $2400",
@@ -85,7 +89,7 @@ async def test_entity_timeline_supersedes_reverse_lookup(
 async def test_graph_snapshot_filters_by_date(
     service_with_timeline: TensoryService,
 ) -> None:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     early = now - timedelta(days=30)
     snapshot = await service_with_timeline.get_graph_snapshot(early)
     assert len(snapshot.active_nodes) == 0
@@ -95,7 +99,7 @@ async def test_graph_snapshot_filters_by_date(
 async def test_graph_snapshot_ghost_nodes(
     service_with_timeline: TensoryService,
 ) -> None:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     snapshot = await service_with_timeline.get_graph_snapshot(now)
     assert len(snapshot.active_nodes) >= 1
     ghost_names = [n.name for n in snapshot.ghost_nodes]
@@ -106,7 +110,7 @@ async def test_graph_snapshot_ghost_nodes(
 async def test_graph_snapshot_superseded_excluded(
     service_with_timeline: TensoryService,
 ) -> None:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     snapshot = await service_with_timeline.get_graph_snapshot(now)
     assert snapshot.stats["superseded"] >= 1
 
@@ -130,3 +134,47 @@ async def test_timeline_range_empty_db() -> None:
     assert result.min_date == result.max_date
     assert len(result.event_histogram) == 0
     await store.close()
+
+
+# ── API-level tests ──────────────────────────────────────────────────
+
+
+@pytest.fixture
+async def client(
+    service_with_timeline: TensoryService,
+) -> AsyncIterator[AsyncClient]:
+    # ASGITransport does not trigger lifespan events — set service directly
+    set_service(service_with_timeline)
+    app = create_app(service=service_with_timeline)
+    transport = ASGITransport(app=app)  # type: ignore[arg-type]
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        yield c
+
+
+async def test_api_entity_timeline(client: AsyncClient) -> None:
+    resp = await client.get("/api/timeline/Ethereum")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data) >= 2
+    assert "claim" in data[0]
+    assert "supersedes" in data[0]
+
+
+async def test_api_snapshot(client: AsyncClient) -> None:
+    now = datetime.now(UTC).isoformat()
+    resp = await client.get("/api/timeline/snapshot/at", params={"at": now})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "active_nodes" in data
+    assert "ghost_nodes" in data
+    assert "edges" in data
+    assert "stats" in data
+
+
+async def test_api_range(client: AsyncClient) -> None:
+    resp = await client.get("/api/timeline/range/bounds")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "min_date" in data
+    assert "max_date" in data
+    assert "event_histogram" in data
