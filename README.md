@@ -104,31 +104,54 @@ docker run -d -p 7770:7770 --name tensory-dashboard \
 
 Open **http://localhost:7770** — entity graph explorer, claims browser, memory stats.
 
-### 3. Agent System Prompt
+### 3. Agent Self-Install Prompt
 
-Add this to your agent's system prompt (or project rules) so it knows how to use tensory:
+Send this to your AI agent (Claude Code, Cursor, etc.) — it will install tensory MCP itself:
+
+> Install the tensory MCP server for long-term memory. Add it to `.mcp.json` in the project root:
+>
+> ```json
+> {
+>   "mcpServers": {
+>     "tensory": {
+>       "command": "uvx",
+>       "args": ["--from", "tensory[mcp]", "tensory-mcp"],
+>       "env": {
+>         "TENSORY_DB": "~/.local/share/tensory/memory.db",
+>         "OPENAI_API_KEY": "your-key"
+>       }
+>     }
+>   }
+> }
+> ```
+>
+> `OPENAI_API_KEY` enables vector search (embeddings). Without it, only text + graph search work — still useful but less accurate.
+>
+> After creating `.mcp.json`, verify with `tensory_health` tool. You now have 7 tools:
+> - `tensory_add(text)` — store raw text, claims extracted automatically
+> - `tensory_remember(claims)` — store specific facts: `[{"text": "...", "entities": ["..."], "type": "fact"}]`
+> - `tensory_search(query)` — hybrid search across all memories
+> - `tensory_timeline(entity)` — see how facts evolved over time
+> - `tensory_stats()` — memory database stats
+> - `tensory_health()` — check which components are active
+> - `tensory_reset()` — clear all memory (careful!)
+
+### Agent System Prompt
+
+Add this to your agent's system prompt or project rules (e.g., `CLAUDE.md`) so it knows how to use memory:
 
 ```
-You have access to long-term memory via tensory MCP tools.
+You have long-term memory via tensory MCP tools.
 
-STORING MEMORIES:
-- Use tensory_add(text) to store raw text — claims are extracted automatically
-- Use tensory_remember(claims) to store specific facts: [{"text": "...", "entities": ["..."], "type": "fact"}]
-- Claim types: "fact" (verifiable), "experience" (event), "observation" (inference), "opinion" (judgment)
+STORING: Use tensory_remember to store facts, decisions, and preferences:
+  [{"text": "User prefers dark mode", "entities": ["User"], "type": "fact"}]
+Claim types: "fact" (verifiable), "experience" (event), "observation" (inference), "opinion" (judgment)
 
-RETRIEVING MEMORIES:
-- Use tensory_search(query) before answering questions — check what you already know
-- Use tensory_timeline(entity) to see how facts about something changed over time
+RETRIEVING: Use tensory_search BEFORE answering questions about past work or user preferences.
+Use tensory_timeline to see how facts about something changed over time.
 
-WHEN TO STORE:
-- User shares new facts, preferences, or decisions
-- You learn something important from the conversation
-- A previous fact changed or was corrected
-
-WHEN TO SEARCH:
-- User asks about something discussed before
-- You need context from previous conversations
-- Before making assumptions — check memory first
+WHEN TO STORE: User shares preferences, decisions, or important context. A fact changed or was corrected. You learned something important from the conversation.
+WHEN TO SEARCH: User asks about something discussed before. You need context from previous sessions. Before making assumptions — check memory first.
 ```
 
 ### 4. As a Python library
