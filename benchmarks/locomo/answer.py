@@ -17,8 +17,10 @@ import logging
 
 from benchmarks.locomo.data import QAItem
 from benchmarks.locomo.score import BenchmarkResult
+from tensory.context import format_context
 from tensory.extract import LLMProtocol
 from tensory.models import Context, SearchResult
+from tensory.routing import classify_query
 from tensory.store import Tensory
 
 logger = logging.getLogger(__name__)
@@ -84,19 +86,21 @@ async def answer_questions(
     for i, qa in enumerate(qa_items, 1):
         logger.info("[%d/%d] Q: %s", i, total, qa.question[:80])
 
-        # 1. Search
+        # 1. Search (with memory-type routing)
         try:
+            memory_type = classify_query(qa.question)
             search_results = await store.search(
                 qa.question,
                 context=context,
                 limit=search_limit,
+                memory_type=memory_type,
             )
         except Exception as exc:
             logger.error("Search failed for Q%d: %s", i, exc)
             search_results = []
 
-        # 2. Generate answer
-        claims_text = _format_claims(search_results)
+        # 2. Generate answer (with structured context)
+        claims_text = format_context(search_results)
         prompt = ANSWER_PROMPT.format(
             claims_text=claims_text,
             question=qa.question,
