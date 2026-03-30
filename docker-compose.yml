@@ -1,15 +1,29 @@
+# Tensory Dashboard — one command to see your agent's memory
+#
+# Usage:
+#   docker compose up -d
+#   open http://localhost:7770
+#
+# The dashboard reads the same SQLite database that tensory-mcp writes to.
+# Mount your MCP database via TENSORY_DB_PATH or the default volume.
+#
+# With your MCP database:
+#   TENSORY_DB_PATH=~/.local/share/tensory/memory.db docker compose up -d
+
 services:
-  tensory:
+  dashboard:
     build: .
     ports:
-      - "8888:8888"
+      - "${TENSORY_DASHBOARD_PORT:-7770}:7770"
     environment:
       - TENSORY_DB_PATH=/data/tensory.db
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      - ANTHROPIC_BASE_URL=${ANTHROPIC_BASE_URL:-}
     volumes:
+      # Default: named volume (works standalone)
       - tensory-data:/data
+      # Override: mount your MCP database file directly
+      # Uncomment and adjust the path to share DB with tensory-mcp:
+      # - ~/.local/share/tensory:/data
+    restart: unless-stopped
 
 volumes:
   tensory-data:

@@ -1,7 +1,9 @@
 # ══════════════════════════════════════════════════════════════════════
-# Tensory All-in-One: API + Dashboard UI + MCP
-# Build: docker build -t tensory .
-# Run:   docker run -p 8000:8000 -v tensory-data:/data tensory
+# Tensory Dashboard: API + UI in one container
+#
+# Build:  docker build -t tensory .
+# Run:    docker run -d -p 7770:7770 -v tensory-data:/data tensory
+# Open:   http://localhost:7770
 # ══════════════════════════════════════════════════════════════════════
 
 # ── Stage 1: Build Next.js dashboard to static HTML/CSS/JS ──────────
@@ -23,7 +25,7 @@ RUN pip install uv
 
 # Install Python deps
 COPY pyproject.toml uv.lock ./
-RUN uv sync --extra all --no-dev
+RUN uv sync --extra ui --no-dev
 
 # Copy source
 COPY tensory/ tensory/
@@ -37,6 +39,6 @@ COPY --from=ui-builder /ui/out/ tensory/_ui_static/
 RUN mkdir -p /data
 
 ENV TENSORY_DB_PATH=/data/tensory.db
-EXPOSE 8888
+EXPOSE 7770
 
-CMD ["uv", "run", "tensory-server", "--host", "0.0.0.0", "--port", "8888"]
+CMD ["uv", "run", "tensory-dashboard", "--host", "0.0.0.0", "--port", "7770", "--no-open"]

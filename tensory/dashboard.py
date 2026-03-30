@@ -5,10 +5,14 @@ Uses the same SQLite database as the MCP server.
 
 Usage::
 
-    tensory-dashboard                          # defaults: :8000, data/tensory.db
+    tensory-dashboard                          # defaults: :7770, data/tensory.db
     tensory-dashboard --port 3000              # custom port
     tensory-dashboard --db ./my-agent.db       # custom DB path
     TENSORY_DB_PATH=./mem.db tensory-dashboard # env var also works
+
+Docker::
+
+    docker run -d -p 7770:7770 -v tensory-data:/data ghcr.io/tensory/tensory
 
 Requires ``tensory[ui]`` extra: ``uv add tensory[ui]``
 """
@@ -30,8 +34,8 @@ def main() -> None:
     parser.add_argument(
         "--port", "-p",
         type=int,
-        default=int(os.getenv("TENSORY_DASHBOARD_PORT", "8000")),
-        help="Port to serve on (default: 8000)",
+        default=int(os.getenv("TENSORY_DASHBOARD_PORT", "7770")),
+        help="Port to serve on (default: 7770)",
     )
     parser.add_argument(
         "--db",
