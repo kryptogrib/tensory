@@ -12,37 +12,34 @@ WORKDIR /ui
 COPY ui/package*.json ./
 RUN npm ci
 COPY ui/ .
-# Empty string = same origin (API and UI served by same FastAPI)
 ENV NEXT_PUBLIC_API_URL=""
 RUN npm run build
-# Result: /ui/out/ — pure static files, no Node.js needed at runtime
 
 # ── Stage 2: Python runtime ─────────────────────────────────────────
 FROM python:3.11-slim
 WORKDIR /app
 
-RUN pip install uv
+# Install only the runtime deps (no build system needed)
+RUN pip install --no-cache-dir \
+    aiosqlite \
+    sqlite-vec \
+    pydantic \
+    fastapi \
+    "uvicorn[standard]" \
+    httpx
 
-# Install Python deps
-# SETUPTOOLS_SCM_PRETEND_VERSION tells hatch-vcs the version
-# (no .git in Docker context)
-ARG SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0
-ENV SETUPTOOLS_SCM_PRETEND_VERSION=${SETUPTOOLS_SCM_PRETEND_VERSION}
-COPY pyproject.toml uv.lock ./
-RUN uv sync --extra ui --no-dev
-
-# Copy source
+# Copy source directly (no package install, no hatch-vcs)
 COPY tensory/ tensory/
 COPY api/ api/
 COPY tensory_mcp.py ./
 
-# Copy pre-built UI static files into the package
+# Copy pre-built UI static files
 COPY --from=ui-builder /ui/out/ tensory/_ui_static/
 
-# Create data directory
 RUN mkdir -p /data
 
 ENV TENSORY_DB_PATH=/data/tensory.db
+ENV PYTHONPATH=/app
 EXPOSE 7770
 
-CMD ["uv", "run", "tensory-dashboard", "--host", "0.0.0.0", "--port", "7770", "--no-open"]
+CMD ["python", "-m", "tensory.dashboard", "--host", "0.0.0.0", "--port", "7770", "--no-open"]
