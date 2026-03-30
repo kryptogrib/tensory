@@ -705,3 +705,33 @@ class TensoryService:
             edges=edges,
             stats={"claims": total_claims, "superseded": superseded},
         )
+
+    async def get_timeline_range(self) -> TimelineRange:
+        """Get the date range and event histogram for the timeline slider."""
+        db = self.store.db
+        assert db is not None
+        cursor = await db.execute(
+            "SELECT MIN(created_at), MAX(created_at) FROM claims"
+        )
+        row = await cursor.fetchone()
+        if not row or row[0] is None:
+            now = datetime.now(UTC).isoformat()
+            return TimelineRange(
+                min_date=now, max_date=now, event_histogram=[]
+            )
+        min_date = str(row[0])
+        max_date = str(row[1])
+        cursor = await db.execute(
+            "SELECT date(created_at) as day, COUNT(*) as cnt"
+            " FROM claims GROUP BY date(created_at) ORDER BY day ASC"
+        )
+        histogram_rows = await cursor.fetchall()
+        histogram = [
+            HistogramBucket(date=str(r[0]), count=int(r[1]))
+            for r in histogram_rows
+        ]
+        return TimelineRange(
+            min_date=min_date,
+            max_date=max_date,
+            event_histogram=histogram,
+        )

@@ -109,3 +109,24 @@ async def test_graph_snapshot_superseded_excluded(
     now = datetime.now(timezone.utc)
     snapshot = await service_with_timeline.get_graph_snapshot(now)
     assert snapshot.stats["superseded"] >= 1
+
+
+async def test_timeline_range_histogram(
+    service_with_timeline: TensoryService,
+) -> None:
+    result = await service_with_timeline.get_timeline_range()
+    assert result.min_date is not None
+    assert result.max_date is not None
+    assert result.min_date <= result.max_date
+    assert len(result.event_histogram) >= 1
+    total_events = sum(b.count for b in result.event_histogram)
+    assert total_events >= 3
+
+
+async def test_timeline_range_empty_db() -> None:
+    store = await Tensory.create(":memory:")
+    svc = TensoryService(store)
+    result = await svc.get_timeline_range()
+    assert result.min_date == result.max_date
+    assert len(result.event_histogram) == 0
+    await store.close()
