@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 # Future migrations: version -> list of SQL statements
 MIGRATIONS: dict[int, list[str]] = {
@@ -33,6 +33,21 @@ MIGRATIONS: dict[int, list[str]] = {
         "ALTER TABLE claims ADD COLUMN usage_count INTEGER DEFAULT 0",
         "ALTER TABLE claims ADD COLUMN last_used TIMESTAMP",
         "ALTER TABLE claims ADD COLUMN source_episode_ids JSON DEFAULT '[]'",
+    ],
+    3: [
+        # Collision log — persist all detected collisions for audit trail
+        """CREATE TABLE IF NOT EXISTS collision_log (
+            id             TEXT PRIMARY KEY,
+            claim_a_id     TEXT NOT NULL,
+            claim_b_id     TEXT NOT NULL,
+            collision_type TEXT NOT NULL,
+            score          REAL NOT NULL,
+            shared_entities JSON DEFAULT '[]',
+            created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_collision_log_a ON collision_log(claim_a_id)",
+        "CREATE INDEX IF NOT EXISTS idx_collision_log_b ON collision_log(claim_b_id)",
+        "CREATE INDEX IF NOT EXISTS idx_collision_log_type ON collision_log(collision_type)",
     ],
 }
 
@@ -149,6 +164,18 @@ _TABLES = [
         created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
     """,
+    # ─── Collision log: persist all detected collisions ───
+    """
+    CREATE TABLE IF NOT EXISTS collision_log (
+        id             TEXT PRIMARY KEY,
+        claim_a_id     TEXT NOT NULL,
+        claim_b_id     TEXT NOT NULL,
+        collision_type TEXT NOT NULL,
+        score          REAL NOT NULL,
+        shared_entities JSON DEFAULT '[]',
+        created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """,
     # ─── Schema version tracking ───
     """
     CREATE TABLE IF NOT EXISTS schema_version (
@@ -200,6 +227,9 @@ _INDICES = [
     "CREATE INDEX IF NOT EXISTS idx_relevance_context ON relevance_scores(context_id)",
     "CREATE INDEX IF NOT EXISTS idx_waypoints_dst ON waypoints(dst_claim)",
     "CREATE INDEX IF NOT EXISTS idx_claims_memory_type ON claims(memory_type)",
+    "CREATE INDEX IF NOT EXISTS idx_collision_log_a ON collision_log(claim_a_id)",
+    "CREATE INDEX IF NOT EXISTS idx_collision_log_b ON collision_log(claim_b_id)",
+    "CREATE INDEX IF NOT EXISTS idx_collision_log_type ON collision_log(collision_type)",
 ]
 
 

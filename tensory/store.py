@@ -405,6 +405,9 @@ class Tensory:
                 await apply_salience_updates(collisions, self._db)
                 all_collisions.extend(collisions)
 
+                # Persist to collision_log
+                await self._persist_collisions(collisions)
+
                 # Auto-supersede on very high collision scores
                 for col in collisions:
                     if col.type == "supersedes":
@@ -424,6 +427,29 @@ class Tensory:
             collisions=all_collisions,
             new_entities=list(set(new_entities)),
         )
+
+    # ── Collision persistence ────────────────────────────────────────────
+
+    async def _persist_collisions(self, collisions: list[Collision]) -> None:
+        """Save collision records to collision_log table for audit trail."""
+        for col in collisions:
+            col_id = uuid.uuid4().hex
+            await self._db.execute(
+                """INSERT INTO collision_log
+                   (id, claim_a_id, claim_b_id, collision_type, score,
+                    shared_entities, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    col_id,
+                    col.claim_a.id,
+                    col.claim_b.id,
+                    col.type,
+                    col.score,
+                    json.dumps(col.shared_entities),
+                    datetime.now(UTC).isoformat(),
+                ),
+            )
+        await self._db.commit()
 
     # ── Surprise score (cognitive mechanism #1) ───────────────────────────
 
@@ -870,6 +896,7 @@ class Tensory:
             "entities",
             "entity_relations",
             "waypoints",
+            "collision_log",
         ):
             cursor = await self._db.execute(f"SELECT COUNT(*) FROM {table}")  # noqa: S608
             row = await cursor.fetchone()

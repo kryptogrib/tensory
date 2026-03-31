@@ -100,7 +100,14 @@ async def find_collisions(
         shared = set(claim.entities) & set(candidate.entities)
         is_waypoint = await _is_waypoint_linked(claim.id, candidate.id, db)
 
-        vector_score = _cosine_sim(claim.embedding, candidate.embedding)
+        # Use pre-computed similarity from sqlite-vec if available,
+        # otherwise fall back to cosine_sim (e.g. for FTS-only candidates)
+        vec_sim = candidate.metadata.get("_vec_similarity")
+        vector_score = (
+            float(str(vec_sim))
+            if vec_sim is not None
+            else _cosine_sim(claim.embedding, candidate.embedding)
+        )
         entity_score = len(shared) / max(len(claim.entities), len(candidate.entities), 1)
         temporal_score = _temporal_proximity(claim.created_at, candidate.created_at)
         waypoint_score = 1.0 if is_waypoint else 0.0
@@ -155,8 +162,12 @@ async def apply_salience_updates(collisions: list[Collision], db: aiosqlite.Conn
 async def _find_structural_conflicts(claim: Claim, db: aiosqlite.Connection) -> list[Collision]:
     """Find claims about same entities with overlapping validity windows.
 
-    Pattern from OpenMemory find_conflicting_facts(): if two claims
-    share entities and both are currently valid, they likely conflict.
+    Pattern from OpenMemory find_conflicting_facts(), improved with
+    predicate-level analysis to reduce false positives.
+
+    Two claims sharing an entity are only "contradiction" if they discuss
+    the same attribute/predicate (detected via text overlap + numeric diff).
+    Otherwise they are "related" — different aspects of the same entity.
     """
     if not claim.entities:
         return []
@@ -194,14 +205,17 @@ async def _find_structural_conflicts(claim: Claim, db: aiosqlite.Connection) -> 
 
         shared = set(claim.entities) & set(candidate.entities)
         if shared:
+            # Determine if this is a real contradiction or just related facts
+            conflict_type = _structural_conflict_type(claim.text, candidate.text)
+            score = 0.8 if conflict_type == "contradiction" else 0.55
             conflicts.append(
                 Collision(
                     claim_a=claim,
                     claim_b=candidate,
-                    score=0.8,  # structural conflicts have high base score
+                    score=score,
                     shared_entities=list(shared),
                     temporal_distance=None,
-                    type="contradiction",
+                    type=conflict_type,
                 )
             )
 
@@ -236,8 +250,12 @@ async def _get_candidates(claim: Claim, db: aiosqlite.Connection, top_k: int) ->
             rows = await cursor.fetchall()
             for row in rows:
                 c = _row_to_claim_light(row)
-                # Load embedding for cosine sim computation
-                c.embedding = claim.embedding  # approximate: use distance instead
+                # Store cosine similarity from sqlite-vec distance.
+                # sqlite-vec with distance_metric=cosine returns cosine distance
+                # (1 - similarity), so we convert: similarity = 1 - distance.
+                # We stash it in metadata to avoid loading the full embedding.
+                distance = float(row[1])  # ce.distance is 2nd column
+                c.metadata["_vec_similarity"] = max(0.0, 1.0 - distance)
                 candidates.append(c)
         except Exception:
             logger.debug("Vector candidate search failed, falling back to FTS")
@@ -320,6 +338,83 @@ async def _is_waypoint_linked(claim_a_id: str, claim_b_id: str, db: aiosqlite.Co
         (claim_a_id, claim_b_id, claim_b_id, claim_a_id),
     )
     return await cursor.fetchone() is not None
+
+
+def _structural_conflict_type(text_a: str, text_b: str) -> str:
+    """Determine if two claims about the same entity are contradictions or related.
+
+    Uses two heuristics (zero LLM cost):
+    1. Word overlap ratio: high overlap = same topic, likely conflict
+    2. Numeric value diff: shared context words + different numbers = conflict
+
+    Returns "contradiction" only if evidence suggests same attribute with
+    different values. Otherwise returns "related" (different aspects).
+    """
+    words_a = _content_words(text_a)
+    words_b = _content_words(text_b)
+
+    if not words_a or not words_b:
+        return "related"
+
+    # Signal 1: Word overlap (Jaccard on content words)
+    overlap = len(words_a & words_b)
+    union = len(words_a | words_b)
+    jaccard = overlap / union if union > 0 else 0.0
+
+    # Signal 2: Numeric value conflict
+    nums_a = _extract_numbers(text_a)
+    nums_b = _extract_numbers(text_b)
+    has_numeric_conflict = bool(nums_a and nums_b and nums_a != nums_b)
+
+    # High word overlap + different numbers = real contradiction
+    # e.g., "EigenLayer has 50 members" vs "EigenLayer has 65 members"
+    if has_numeric_conflict and jaccard >= 0.3:
+        return "contradiction"
+
+    # Very high overlap without numeric diff = potential update/confirm
+    # e.g., "EigenLayer launched v2" vs "EigenLayer launched v2 successfully"
+    if jaccard >= 0.6:
+        return "contradiction"
+
+    # Low overlap = different aspects of same entity
+    # e.g., "EigenLayer launched v2" vs "EigenLayer has 50 members"
+    return "related"
+
+
+# Stopwords for content word extraction (common English)
+_STOPWORDS: set[str] = {
+    "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
+    "have", "has", "had", "do", "does", "did", "will", "would", "could",
+    "should", "may", "might", "can", "shall", "to", "of", "in", "for",
+    "on", "with", "at", "by", "from", "as", "into", "through", "during",
+    "before", "after", "and", "but", "or", "nor", "not", "so", "yet",
+    "both", "either", "neither", "each", "every", "all", "any", "few",
+    "more", "most", "other", "some", "such", "no", "than", "too", "very",
+    "just", "about", "above", "also", "that", "this", "these", "those",
+    "it", "its", "they", "their", "them", "we", "our", "us", "he", "she",
+    "him", "her", "his", "my", "your", "who", "which", "what", "when",
+    "where", "how", "if", "then", "there", "here", "up", "out", "over",
+}
+
+
+def _content_words(text: str) -> set[str]:
+    """Extract meaningful content words (lowercase, no stopwords, no short words)."""
+    words: set[str] = set()
+    for word in text.lower().split():
+        # Strip punctuation
+        cleaned = word.strip(".,;:!?\"'()[]{}—–-")
+        if len(cleaned) > 2 and cleaned not in _STOPWORDS and not cleaned.isdigit():
+            words.add(cleaned)
+    return words
+
+
+def _extract_numbers(text: str) -> set[str]:
+    """Extract numeric values from text for conflict detection."""
+    import re
+
+    # Match integers and decimals, including dollar amounts
+    matches: list[str] = re.findall(r"\b\d+(?:\.\d+)?\b", text)
+    return set(matches)
 
 
 def _classify_collision(new_claim: Claim, existing: Claim, score: float) -> str:

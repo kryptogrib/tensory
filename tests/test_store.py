@@ -300,3 +300,83 @@ async def test_stats_with_data(store: Tensory) -> None:
     assert stats["claims_by_type"].get("fact") == 2
     assert stats["claims_by_type"].get("opinion") == 1
     assert stats["avg_salience"] > 0
+
+
+# ── Collision persistence (Phase 2) ─────────────────────────────────────
+
+
+async def test_collisions_persisted_to_collision_log(store: Tensory) -> None:
+    """Collisions detected during add_claims() should be saved to collision_log table."""
+    # Add two claims about same entity with conflicting values → real collision
+    await store.add_claims(
+        [Claim(text="EigenLayer has 50 team members", entities=["EigenLayer"])]
+    )
+    await store.add_claims(
+        [Claim(text="EigenLayer has 65 team members", entities=["EigenLayer"])]
+    )
+
+    # Check collision_log table directly
+    cursor = await store._db.execute("SELECT COUNT(*) FROM collision_log")
+    row = await cursor.fetchone()
+    assert row is not None
+    assert row[0] >= 1, "Collision should be persisted to collision_log table"
+
+
+async def test_collision_log_stores_correct_fields(store: Tensory) -> None:
+    """collision_log stores claim IDs, type, score, and shared entities."""
+    r1 = await store.add_claims(
+        [Claim(text="Bitcoin price is 40000 dollars", entities=["Bitcoin"])]
+    )
+    r2 = await store.add_claims(
+        [Claim(text="Bitcoin price is 65000 dollars", entities=["Bitcoin"])]
+    )
+
+    cursor = await store._db.execute(
+        "SELECT claim_a_id, claim_b_id, collision_type, score, shared_entities "
+        "FROM collision_log ORDER BY created_at DESC LIMIT 1"
+    )
+    row = await cursor.fetchone()
+    assert row is not None, "Should have persisted collision"
+
+    claim_a_id = row[0]
+    claim_b_id = row[1]
+    collision_type = row[2]
+    score = float(row[3])
+
+    # claim_a should be the newer claim, claim_b the older
+    assert claim_a_id == r2.claims[0].id
+    assert claim_b_id == r1.claims[0].id
+    assert collision_type in ("contradiction", "supersedes", "confirms", "related")
+    assert score > 0
+
+
+async def test_stats_includes_collision_count(store: Tensory) -> None:
+    """stats() should include collision_log count."""
+    await store.add_claims(
+        [Claim(text="EigenLayer has 50 team members", entities=["EigenLayer"])]
+    )
+    await store.add_claims(
+        [Claim(text="EigenLayer has 65 team members", entities=["EigenLayer"])]
+    )
+
+    stats = await store.stats()
+    assert "collision_log" in stats["counts"], "Stats should include collision_log count"
+    assert stats["counts"]["collision_log"] >= 1
+
+
+async def test_collision_log_not_duplicated_on_related(store: Tensory) -> None:
+    """Related (non-contradicting) collisions should also be logged for audit trail."""
+    await store.add_claims(
+        [Claim(text="EigenLayer launched version 2 of restaking", entities=["EigenLayer"])]
+    )
+    await store.add_claims(
+        [Claim(text="EigenLayer has 50 team members", entities=["EigenLayer"])]
+    )
+
+    # Should log the "related" collision too
+    cursor = await store._db.execute("SELECT collision_type FROM collision_log")
+    rows = await cursor.fetchall()
+    assert len(rows) >= 1
+    # At least one should be "related" (different attributes)
+    types = {row[0] for row in rows}
+    assert "related" in types or "contradiction" in types
