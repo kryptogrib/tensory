@@ -14,7 +14,9 @@ from typing import Final
 
 # ── 1. Context-aware extraction (used by extract.py) ─────────────────────
 
-EXTRACT_WITH_CONTEXT: Final[str] = """You are building a long-term knowledge base focused on a specific research goal.
+EXTRACT_WITH_CONTEXT: Final[
+    str
+] = """You are building a long-term knowledge base focused on a specific research goal.
 
 RESEARCH GOAL: {goal}
 DOMAIN: {domain}
@@ -55,7 +57,9 @@ Return ONLY valid JSON (no markdown, no explanation):
 
 If nothing is relevant to the research goal, return {{"claims": [], "relations": []}}"""
 
-EXTRACT_GENERIC: Final[str] = """You are building a long-term knowledge base. Extract claims that would be \
+EXTRACT_GENERIC: Final[
+    str
+] = """You are building a long-term knowledge base. Extract claims that would be \
 valuable when recalled weeks or months from now by someone with no memory of this conversation.
 
 The test for every claim: "Would recalling this change how I think or act?"
