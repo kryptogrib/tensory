@@ -14,6 +14,7 @@ import "@xyflow/react/dist/style.css";
 
 import { useTimelineRange, useGraphSnapshot, useEntityTimeline } from "@/hooks/use-timeline";
 import { useGraphLayout } from "@/hooks/use-graph-layout";
+import { useGraphEntities, useGraphEdges } from "@/hooks/use-graph";
 import { TimelineSlider } from "./TimelineSlider";
 import { EntityTimeline } from "./EntityTimeline";
 import { GhostNode } from "./GhostNode";
@@ -66,6 +67,10 @@ export function TimelinePage() {
   const { data: snapshot } = useGraphSnapshot(debouncedDateStr);
   const { data: entityEntries } = useEntityTimeline(selectedEntity);
 
+  // Load ALL entities + edges ONCE for stable layout (no re-layout on slider)
+  const { data: allGraphEntities } = useGraphEntities({ limit: 500, min_mentions: 1 });
+  const { data: allGraphEdges } = useGraphEdges({});
+
   // Initialize slider at max_date when range loads
   useEffect(() => {
     if (timelineRange && selectedDate === null) {
@@ -75,13 +80,14 @@ export function TimelinePage() {
     }
   }, [timelineRange, selectedDate]);
 
-  // Debounced date change → fetch snapshot
+  // Slider change — NO debounce for the slider itself (instant),
+  // debounce only for the API snapshot call
   const handleDateChange = useCallback((date: Date) => {
     setSelectedDate(date);
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
       setDebouncedDateStr(date.toISOString());
-    }, 150);
+    }, 300);
   }, []);
 
   // Cleanup debounce on unmount
@@ -91,39 +97,55 @@ export function TimelinePage() {
     };
   }, []);
 
-  // ── Build entity list for layout ───────────
-  const allEntities = useMemo<EntityNode[]>(() => {
-    if (!snapshot) return [];
-    const active = snapshot.active_nodes ?? [];
-    const ghost = (snapshot.ghost_nodes ?? []).map((g) => ({
-      ...g,
-      id: `ghost-${g.id}`,
-    }));
-    return [...active, ...ghost];
+  // ── Layout: compute ONCE from full graph, not per snapshot ───
+  const { layout } = useGraphLayout(allGraphEntities, allGraphEdges);
+
+  // Active entity IDs from snapshot (changes on slider, but layout stays stable)
+  const activeEntityIds = useMemo(() => {
+    if (!snapshot) return new Set<string>();
+    return new Set((snapshot.active_nodes ?? []).map((n) => n.id));
   }, [snapshot]);
 
-  const edgeData = useMemo(() => snapshot?.edges ?? [], [snapshot]);
+  // Active edge set from snapshot
+  const activeEdgeKeys = useMemo(() => {
+    if (!snapshot) return new Set<string>();
+    return new Set(
+      (snapshot.edges ?? []).map((e) => `${e.from_entity}-${e.to_entity}`),
+    );
+  }, [snapshot]);
 
-  // ── Layout via d3-force ────────────────────
-  const { layout } = useGraphLayout(allEntities, edgeData);
-
-  // Build final nodes with correct types (pulse vs ghost)
+  // Apply active/ghost types to pre-computed layout positions (no physics recompute!)
   const flowNodes = useMemo<Node[]>(() => {
     if (!layout) return [];
-    return layout.nodes.map((node) => ({
-      ...node,
-      type: node.id.startsWith("ghost-") ? "ghost" : "pulse",
-      data: node.id.startsWith("ghost-")
-        ? {
-            name: (node.data as Record<string, unknown>).label as string,
-            type: (node.data as Record<string, unknown>).entityType as string | null,
-            first_seen: "",
-          }
-        : node.data,
-    }));
-  }, [layout]);
+    return layout.nodes.map((node) => {
+      const isActive = activeEntityIds.has(node.id) || activeEntityIds.size === 0;
+      return {
+        ...node,
+        type: isActive ? "pulse" : "ghost",
+        data: isActive
+          ? node.data
+          : {
+              name: (node.data as Record<string, unknown>).label as string,
+              type: (node.data as Record<string, unknown>).entityType as string | null,
+              first_seen: "",
+            },
+        style: isActive ? undefined : { opacity: 0.15 },
+      };
+    });
+  }, [layout, activeEntityIds]);
 
-  const flowEdges = useMemo<Edge[]>(() => layout?.edges ?? [], [layout]);
+  const flowEdges = useMemo<Edge[]>(() => {
+    if (!layout) return [];
+    // Show all edges but dim inactive ones
+    return layout.edges.map((edge) => {
+      const key = `${(edge.data as Record<string, unknown>)?.from_entity ?? ""}-${(edge.data as Record<string, unknown>)?.to_entity ?? ""}`;
+      const isActive = activeEdgeKeys.size === 0 || activeEdgeKeys.has(key);
+      return {
+        ...edge,
+        style: isActive ? undefined : { opacity: 0.05 },
+      };
+    });
+  }, [layout, activeEdgeKeys]);
 
   // ── Node click → select entity ─────────────
   const handleNodeClick: NodeMouseHandler = useCallback((_event, node) => {
@@ -147,13 +169,13 @@ export function TimelinePage() {
     // For full physics drag, wire up simRef from useGraphLayout.
   }, []);
 
-  // ── Entity picker list ─────────────────────
+  // ── Entity picker list (from full graph, not snapshot) ──
   const entityNames = useMemo(() => {
-    if (!snapshot) return [];
-    return (snapshot.active_nodes ?? [])
+    if (!allGraphEntities) return [];
+    return [...allGraphEntities]
       .sort((a, b) => b.mention_count - a.mention_count)
       .map((e) => e.name);
-  }, [snapshot]);
+  }, [allGraphEntities]);
 
   const filteredEntityNames = useMemo(() => {
     if (!entitySearch) return entityNames;
