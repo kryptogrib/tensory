@@ -55,6 +55,7 @@ See `.env.example`. Key vars:
 - Embedder Protocol (not ABC) — structural subtyping, no inheritance needed
 - LLMProtocol = any `async (str) -> str` callable
 - Graceful degradation: search/vec channels that fail → empty list, no crash
+- NEVER commit `.claude/` directory — it is in `.gitignore`, do NOT use `git add -f` on it
 
 ## Extraction & Durability
 
