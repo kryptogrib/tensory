@@ -51,6 +51,6 @@ After creating .env, restart the session — memory will activate automatically.
 fi
 
 # ── Normal run: recall memories ──────────────────────────────────────────
-echo "$INPUT" | uvx --from "tensory[mcp,claude-code]" tensory-hook recall 2>/dev/null
+echo "$INPUT" | uvx --refresh-package tensory --from "tensory[mcp,claude-code]" tensory-hook recall 2>/dev/null
 
 exit 0
