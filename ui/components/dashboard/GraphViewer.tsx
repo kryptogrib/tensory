@@ -44,12 +44,23 @@ function GraphCanvas({ mode, physics }: GraphCanvasProps) {
   const physicsRef = useRef(physics);
   physicsRef.current = physics;
 
-  const { data: entities } = useGraphEntities({
+  const { data: rawEntities } = useGraphEntities({
     limit: 500,
-    min_mentions: mode === "entity" ? 1 : 0,
+    min_mentions: mode === "entity" ? 2 : 1,
   });
 
   const { data: edgesData } = useGraphEdges({});
+
+  // Filter orphan nodes (no edges) — reduces N dramatically
+  const entities = useMemo(() => {
+    if (!rawEntities || !edgesData) return rawEntities;
+    const connected = new Set<string>();
+    for (const e of edgesData) {
+      connected.add(e.from_entity);
+      connected.add(e.to_entity);
+    }
+    return rawEntities.filter((e) => connected.has(e.name));
+  }, [rawEntities, edgesData]);
 
   // Use extracted layout hook
   const { layout, simRef, rafRef } = useGraphLayout(entities, edgesData);

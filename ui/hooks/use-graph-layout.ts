@@ -136,9 +136,14 @@ export function computeLayout(
   }
 
   // --- Configure and run simulation synchronously ---
-  const chargeStrength = Math.min(-400, -120 * Math.sqrt(n));
-  const linkDist = Math.max(150, 80 + n * 5);
-  const collideR = 50 + n * 0.5;
+  // Logarithmic scaling: stabilizes at large N instead of blowing up
+  // N=50: charge=-655, link=345, collide=91
+  // N=200: charge=-812, link=425, collide=112
+  // N=400: charge=-912, link=476, collide=122
+  const logN = Math.log2(n + 1);
+  const chargeStrength = -200 - 80 * logN;
+  const linkDist = 120 + 40 * logN;
+  const collideR = 35 + 10 * logN;
 
   const sim = forceSimulation<SimNode>(simNodes)
     .force(
@@ -148,7 +153,7 @@ export function computeLayout(
         .distance(linkDist)
         .strength(0.5),
     )
-    .force("charge", forceManyBody<SimNode>().strength(chargeStrength).distanceMax(1000))
+    .force("charge", forceManyBody<SimNode>().strength(chargeStrength).distanceMax(linkDist * 4))
     .force("center", forceCenter(0, 0).strength(0.08))
     .force("collide", forceCollide<SimNode>(collideR).strength(0.8))
     .force("x", forceX<SimNode>(0).strength(0.04))
@@ -156,9 +161,49 @@ export function computeLayout(
     .velocityDecay(0.35)
     .stop();
 
-  // Run 300 ticks synchronously (instant, <10ms for 100 nodes)
+  // --- Position cache: restore from localStorage for stable layouts ---
   const TICKS = 300;
-  for (let i = 0; i < TICKS; i++) sim.tick();
+  const sortedIds = simNodes.map((s) => s.nodeId).sort();
+  // Use a hash of node ids (first 200 chars) as cache key
+  const cacheKey = `tensory-layout-${sortedIds.join(",").slice(0, 200)}`;
+  let usedCache = false;
+
+  try {
+    const cached = localStorage.getItem(cacheKey);
+    if (cached) {
+      const positions = JSON.parse(cached) as Record<
+        string,
+        { x: number; y: number }
+      >;
+      for (const sn of simNodes) {
+        const pos = positions[sn.nodeId];
+        if (pos) {
+          sn.x = pos.x;
+          sn.y = pos.y;
+        }
+      }
+      // Fewer ticks needed — positions already good
+      for (let i = 0; i < 50; i++) sim.tick();
+      usedCache = true;
+    }
+  } catch {
+    // localStorage unavailable (private mode, etc.) — ignore
+  }
+
+  if (!usedCache) {
+    for (let i = 0; i < TICKS; i++) sim.tick();
+  }
+
+  // Save positions to cache
+  try {
+    const posMap: Record<string, { x: number; y: number }> = {};
+    for (const sn of simNodes) {
+      posMap[sn.nodeId] = { x: sn.x ?? 0, y: sn.y ?? 0 };
+    }
+    localStorage.setItem(cacheKey, JSON.stringify(posMap));
+  } catch {
+    // localStorage full or unavailable — ignore
+  }
 
   // Build React Flow nodes from final positions
   const rfNodes: Node[] = simNodes.map((sn) => ({
