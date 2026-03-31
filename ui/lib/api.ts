@@ -6,6 +6,9 @@ import type {
   SubGraph,
   SearchResult,
   ClaimDetail,
+  TimelineEntry,
+  GraphSnapshot,
+  TimelineRange,
 } from "./types";
 
 // In production (static export served by FastAPI) — same origin, no prefix needed.
@@ -78,4 +81,23 @@ export async function searchClaims(
 
 export async function fetchClaimDetail(id: string): Promise<ClaimDetail> {
   return apiFetch<ClaimDetail>(`/api/claims/${encodeURIComponent(id)}`);
+}
+
+export async function fetchEntityTimeline(
+  entity: string,
+  params?: { include_superseded?: boolean; limit?: number }
+): Promise<TimelineEntry[]> {
+  return apiFetch<TimelineEntry[]>(
+    `/api/timeline/${encodeURIComponent(entity)}${qs(params ?? {})}`
+  );
+}
+
+export async function fetchGraphSnapshot(at: string): Promise<GraphSnapshot> {
+  return apiFetch<GraphSnapshot>(
+    `/api/timeline/snapshot/at${qs({ at })}`
+  );
+}
+
+export async function fetchTimelineRange(): Promise<TimelineRange> {
+  return apiFetch<TimelineRange>("/api/timeline/range/bounds");
 }

@@ -98,3 +98,28 @@ export interface Collision {
   temporal_distance: number | null;
   type: string;
 }
+
+// ── Timeline ──────────────────────────────────────
+
+export interface TimelineEntry {
+  claim: Claim;
+  supersedes: string | null;
+}
+
+export interface GraphSnapshot {
+  active_nodes: EntityNode[];
+  ghost_nodes: EntityNode[];
+  edges: EdgeData[];
+  stats: { claims: number; superseded: number };
+}
+
+export interface HistogramBucket {
+  date: string;
+  count: number;
+}
+
+export interface TimelineRange {
+  min_date: string;
+  max_date: string;
+  event_histogram: HistogramBucket[];
+}
