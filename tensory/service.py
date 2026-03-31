@@ -616,10 +616,15 @@ class TensoryService:
         assert db is not None
         at_str = at.isoformat()
 
-        # Active entities: first_seen <= at
+        # Active entities: have at least one claim with created_at <= at
+        # (using claims, not entities.first_seen which is INSERT time)
         cursor = await db.execute(
-            "SELECT id, name, type, mention_count, first_seen FROM entities"
-            " WHERE first_seen <= ? ORDER BY mention_count DESC",
+            """SELECT DISTINCT e.id, e.name, e.type, e.mention_count, e.first_seen
+               FROM entities e
+               JOIN claim_entities ce ON ce.entity_id = e.id
+               JOIN claims c ON c.id = ce.claim_id
+               WHERE c.created_at <= ?
+               ORDER BY e.mention_count DESC""",
             (at_str,),
         )
         active_rows = await cursor.fetchall()
@@ -634,13 +639,13 @@ class TensoryService:
             for r in active_rows
         ]
 
-        # Ghost entities: first_seen > at
+        # Ghost entities: exist in DB but have NO claims with created_at <= at
+        active_ids = {n.id for n in active_nodes}
         cursor = await db.execute(
             "SELECT id, name, type, mention_count, first_seen FROM entities"
-            " WHERE first_seen > ? ORDER BY first_seen ASC",
-            (at_str,),
+            " ORDER BY first_seen ASC",
         )
-        ghost_rows = await cursor.fetchall()
+        all_rows = await cursor.fetchall()
         ghost_nodes = [
             EntityNode(
                 id=str(r[0]),
@@ -649,7 +654,8 @@ class TensoryService:
                 mention_count=int(r[3]),
                 first_seen=_parse_datetime(str(r[4])) or datetime.now(UTC),
             )
-            for r in ghost_rows
+            for r in all_rows
+            if str(r[0]) not in active_ids
         ]
 
         # Active edges
@@ -737,10 +743,7 @@ class TensoryService:
                 " FROM claims GROUP BY date(created_at) ORDER BY bucket ASC"
             )
         histogram_rows = await cursor.fetchall()
-        histogram = [
-            HistogramBucket(date=str(r[0]), count=int(r[1]))
-            for r in histogram_rows
-        ]
+        histogram = [HistogramBucket(date=str(r[0]), count=int(r[1])) for r in histogram_rows]
         return TimelineRange(
             min_date=min_date,
             max_date=max_date,
