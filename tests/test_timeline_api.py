@@ -69,9 +69,7 @@ async def test_entity_timeline_returns_chronological_order(
 async def test_entity_timeline_includes_superseded(
     service_with_timeline: TensoryService,
 ) -> None:
-    entries = await service_with_timeline.get_entity_timeline(
-        "Ethereum", include_superseded=True
-    )
+    entries = await service_with_timeline.get_entity_timeline("Ethereum", include_superseded=True)
     ids = [e.claim.id for e in entries]
     assert "claim-old" in ids
 

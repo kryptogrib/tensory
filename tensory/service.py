@@ -603,9 +603,7 @@ class TensoryService:
         entries: list[TimelineEntry] = []
         for claim in claims:
             supersedes: str | None = None
-            cursor = await db.execute(
-                "SELECT id FROM claims WHERE superseded_by = ?", (claim.id,)
-            )
+            cursor = await db.execute("SELECT id FROM claims WHERE superseded_by = ?", (claim.id,))
             row = await cursor.fetchone()
             if row:
                 supersedes = str(row[0])
@@ -686,9 +684,7 @@ class TensoryService:
             ]
 
         # Stats
-        cursor = await db.execute(
-            "SELECT COUNT(*) FROM claims WHERE created_at <= ?", (at_str,)
-        )
+        cursor = await db.execute("SELECT COUNT(*) FROM claims WHERE created_at <= ?", (at_str,))
         total_row = await cursor.fetchone()
         total_claims = int(total_row[0]) if total_row else 0
         cursor = await db.execute(
@@ -710,15 +706,11 @@ class TensoryService:
         """Get the date range and event histogram for the timeline slider."""
         db = self.store.db
         assert db is not None
-        cursor = await db.execute(
-            "SELECT MIN(created_at), MAX(created_at) FROM claims"
-        )
+        cursor = await db.execute("SELECT MIN(created_at), MAX(created_at) FROM claims")
         row = await cursor.fetchone()
         if not row or row[0] is None:
             now = datetime.now(UTC).isoformat()
-            return TimelineRange(
-                min_date=now, max_date=now, event_histogram=[]
-            )
+            return TimelineRange(min_date=now, max_date=now, event_histogram=[])
         min_date = str(row[0])
         max_date = str(row[1])
         cursor = await db.execute(
@@ -726,10 +718,7 @@ class TensoryService:
             " FROM claims GROUP BY date(created_at) ORDER BY day ASC"
         )
         histogram_rows = await cursor.fetchall()
-        histogram = [
-            HistogramBucket(date=str(r[0]), count=int(r[1]))
-            for r in histogram_rows
-        ]
+        histogram = [HistogramBucket(date=str(r[0]), count=int(r[1])) for r in histogram_rows]
         return TimelineRange(
             min_date=min_date,
             max_date=max_date,
