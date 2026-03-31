@@ -45,7 +45,7 @@ function GraphCanvas({ mode, physics }: GraphCanvasProps) {
   physicsRef.current = physics;
 
   const { data: entities } = useGraphEntities({
-    limit: mode === "entity" ? 50 : 80,
+    limit: 500,
     min_mentions: mode === "entity" ? 1 : 0,
   });
 
