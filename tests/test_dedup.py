@@ -111,3 +111,49 @@ def test_find_duplicates_returns_indices() -> None:
         existing,
     )
     assert 1 in indices  # exact match
+
+
+# ── Near-duplicate detection (word-level fallback) ──────────────────────
+
+
+def test_one_word_diff_is_duplicate() -> None:
+    """Claims differing by one word should be caught as duplicates.
+
+    Real production case: "...plugin uses TENSORY_DB while API..."
+    vs "...plugin uses TENSORY_DB and API..." — only 'while' vs 'and'.
+    Char-shingle Jaccard = 0.84 (below 0.9 threshold), but these are
+    clearly the same claim. Word-level fallback should catch this.
+    """
+    dedup = MinHashDedup()
+    existing = [
+        "DB path mismatch exists where plugin uses TENSORY_DB while API uses TENSORY_DB_PATH",
+    ]
+    new = "DB path mismatch exists where plugin uses TENSORY_DB and API uses TENSORY_DB_PATH"
+
+    assert dedup.is_duplicate(new, existing), (
+        "Claims differing by one word ('while' vs 'and') should be detected as duplicates"
+    )
+
+
+def test_different_claims_not_false_positive() -> None:
+    """Claims about different topics should NOT be caught by word-level fallback."""
+    dedup = MinHashDedup()
+    existing = [
+        "Tensory can be installed using pip install tensory",
+    ]
+    new = "Tensory supports procedural memory via Skill-MDP"
+
+    assert not dedup.is_duplicate(new, existing), (
+        "Different claims about same entity should not be false positive duplicates"
+    )
+
+
+def test_word_level_catches_synonym_replacement() -> None:
+    """Slight rewording with same meaning should be caught."""
+    dedup = MinHashDedup()
+    existing = [
+        "EigenLayer protocol launched a new version of their restaking product today",
+    ]
+    new = "EigenLayer protocol launched a new version of their restaking product yesterday"
+
+    assert dedup.is_duplicate(new, existing)

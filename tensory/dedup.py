@@ -33,6 +33,7 @@ __all__ = [
     "_minhash",
     "_lsh_bands",
     "_jaccard",
+    "_word_jaccard",
 ]
 
 
@@ -92,6 +93,20 @@ def _jaccard(a: frozenset[str], b: frozenset[str]) -> float:
     return len(a & b) / union
 
 
+def _word_jaccard(a: str, b: str) -> float:
+    """Compute Jaccard similarity on word tokens (case-insensitive).
+
+    More tolerant of single-word differences than char n-gram shingles.
+    Used as fallback when char-Jaccard is in the ambiguous zone (0.7–0.9).
+    """
+    words_a = set(a.lower().split())
+    words_b = set(b.lower().split())
+    union = len(words_a | words_b)
+    if union == 0:
+        return 1.0
+    return len(words_a & words_b) / union
+
+
 class MinHashDedup:
     """Entropy-gated deduplication using MinHash/LSH + Jaccard.
 
@@ -134,10 +149,16 @@ class MinHashDedup:
             norm = " ".join(new_text.lower().split())
             return any(" ".join(t.lower().split()) == norm for t in existing_texts)
 
-        # High entropy → MinHash/LSH + Jaccard
+        # High entropy → MinHash/LSH + Jaccard (char-level)
         new_shingles = _shingle(new_text)
         for existing in existing_texts:
-            if _jaccard(new_shingles, _shingle(existing)) >= self.jaccard_threshold:
+            char_jaccard = _jaccard(new_shingles, _shingle(existing))
+            if char_jaccard >= self.jaccard_threshold:
+                return True
+            # Word-level fallback: catches 1-2 word diffs that char shingles miss
+            # (char 3-grams drop Jaccard ~0.16 per word change, so a 1-word diff
+            # in a 12-word sentence gives ~0.84 — below 0.9 but clearly duplicate)
+            if char_jaccard >= 0.7 and _word_jaccard(new_text, existing) >= 0.8:
                 return True
         return False
 
@@ -160,7 +181,11 @@ class MinHashDedup:
         else:
             new_shingles = _shingle(new_text)
             for i, text in enumerate(existing_texts):
-                if _jaccard(new_shingles, _shingle(text)) >= self.jaccard_threshold:
+                char_jaccard = _jaccard(new_shingles, _shingle(text))
+                if (
+                    char_jaccard >= self.jaccard_threshold
+                    or (char_jaccard >= 0.7 and _word_jaccard(new_text, text) >= 0.8)
+                ):
                     duplicates.append(i)
 
         return duplicates
