@@ -646,9 +646,7 @@ async def test_structural_complementary_facts_not_contradiction(store: Tensory) 
         await store.add_claims([claim])
 
     # Check: no claim should have destroyed salience from false contradictions
-    cursor = await store._db.execute(
-        "SELECT MIN(salience) FROM claims WHERE superseded_at IS NULL"
-    )
+    cursor = await store._db.execute("SELECT MIN(salience) FROM claims WHERE superseded_at IS NULL")
     row = await cursor.fetchone()
     assert row is not None
     min_salience = float(row[0])

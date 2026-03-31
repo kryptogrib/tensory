@@ -28,9 +28,7 @@ class _FakeAssistantMessage:
         self.content = blocks
 
 
-async def _fake_query(
-    prompt: str, options: Any = None
-) -> Any:  # async generator
+async def _fake_query(prompt: str, options: Any = None) -> Any:  # async generator
     """Yield a single AssistantMessage with the prompt echoed back."""
     yield _FakeAssistantMessage([_FakeTextBlock(f"extracted: {prompt[:50]}")])
 

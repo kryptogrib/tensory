@@ -308,12 +308,8 @@ async def test_stats_with_data(store: Tensory) -> None:
 async def test_collisions_persisted_to_collision_log(store: Tensory) -> None:
     """Collisions detected during add_claims() should be saved to collision_log table."""
     # Add two claims about same entity with conflicting values → real collision
-    await store.add_claims(
-        [Claim(text="EigenLayer has 50 team members", entities=["EigenLayer"])]
-    )
-    await store.add_claims(
-        [Claim(text="EigenLayer has 65 team members", entities=["EigenLayer"])]
-    )
+    await store.add_claims([Claim(text="EigenLayer has 50 team members", entities=["EigenLayer"])])
+    await store.add_claims([Claim(text="EigenLayer has 65 team members", entities=["EigenLayer"])])
 
     # Check collision_log table directly
     cursor = await store._db.execute("SELECT COUNT(*) FROM collision_log")
@@ -352,12 +348,8 @@ async def test_collision_log_stores_correct_fields(store: Tensory) -> None:
 
 async def test_stats_includes_collision_count(store: Tensory) -> None:
     """stats() should include collision_log count."""
-    await store.add_claims(
-        [Claim(text="EigenLayer has 50 team members", entities=["EigenLayer"])]
-    )
-    await store.add_claims(
-        [Claim(text="EigenLayer has 65 team members", entities=["EigenLayer"])]
-    )
+    await store.add_claims([Claim(text="EigenLayer has 50 team members", entities=["EigenLayer"])])
+    await store.add_claims([Claim(text="EigenLayer has 65 team members", entities=["EigenLayer"])])
 
     stats = await store.stats()
     assert "collision_log" in stats["counts"], "Stats should include collision_log count"
@@ -369,9 +361,7 @@ async def test_collision_log_not_duplicated_on_related(store: Tensory) -> None:
     await store.add_claims(
         [Claim(text="EigenLayer launched version 2 of restaking", entities=["EigenLayer"])]
     )
-    await store.add_claims(
-        [Claim(text="EigenLayer has 50 team members", entities=["EigenLayer"])]
-    )
+    await store.add_claims([Claim(text="EigenLayer has 50 team members", entities=["EigenLayer"])])
 
     # Should log the "related" collision too
     cursor = await store._db.execute("SELECT collision_type FROM collision_log")

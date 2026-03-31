@@ -182,9 +182,8 @@ class MinHashDedup:
             new_shingles = _shingle(new_text)
             for i, text in enumerate(existing_texts):
                 char_jaccard = _jaccard(new_shingles, _shingle(text))
-                if (
-                    char_jaccard >= self.jaccard_threshold
-                    or (char_jaccard >= 0.7 and _word_jaccard(new_text, text) >= 0.8)
+                if char_jaccard >= self.jaccard_threshold or (
+                    char_jaccard >= 0.7 and _word_jaccard(new_text, text) >= 0.8
                 ):
                     duplicates.append(i)
 
