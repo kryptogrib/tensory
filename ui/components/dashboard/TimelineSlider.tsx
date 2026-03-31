@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useCallback, useMemo } from "react";
+import { memo, useCallback, useMemo, useRef } from "react";
 import type { TimelineRange } from "@/lib/types";
 
 interface TimelineSliderProps {
@@ -12,86 +12,174 @@ interface TimelineSliderProps {
 function TimelineSliderComponent({ range, value, onChange }: TimelineSliderProps) {
   const minMs = new Date(range.min_date).getTime();
   const maxMs = new Date(range.max_date).getTime();
-  const spanMs = maxMs - minMs;
+  const spanMs = maxMs - minMs || 1;
   const currentMs = value.getTime();
+  const progress = ((currentMs - minMs) / spanMs) * 100;
+  const trackRef = useRef<HTMLDivElement>(null);
 
-  // Determine display granularity based on time span
   const isSameDay = spanMs < 86400000;
 
-  const maxCount = useMemo(
-    () => Math.max(1, ...range.event_histogram.map((b) => b.count)),
-    [range.event_histogram]
-  );
-
-  const handleChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const ms = Number(e.target.value);
-      onChange(new Date(ms));
+  const handleTrackClick = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      const track = trackRef.current;
+      if (!track) return;
+      const rect = track.getBoundingClientRect();
+      const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      onChange(new Date(minMs + pct * spanMs));
     },
-    [onChange]
+    [minMs, spanMs, onChange],
   );
 
-  const formatDate = (iso: string) => {
+  const handleDrag = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      if (e.buttons !== 1) return; // only left button
+      handleTrackClick(e);
+    },
+    [handleTrackClick],
+  );
+
+  const formatLabel = (iso: string) => {
     const d = new Date(iso);
     if (isSameDay) {
-      // Show time when all data is within one day
       return d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
     }
     return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
   };
 
-  const formatTimestamp = (ms: number) => {
+  const formatCurrent = (ms: number) => {
     const d = new Date(ms);
     if (isSameDay) {
-      return d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+      return d.toLocaleTimeString("en-US", {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      });
     }
-    return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    return d.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
   };
 
+  // Histogram bars (only when >1 bucket)
+  const maxCount = useMemo(
+    () => Math.max(1, ...range.event_histogram.map((b) => b.count)),
+    [range.event_histogram],
+  );
+  const showHistogram = range.event_histogram.length > 1;
+
   return (
-    <div style={{
-      background: "rgba(var(--bg-surface), 0.82)",
-      backdropFilter: "blur(12px)",
-      borderTop: "1px solid rgba(var(--accent-primary), 0.06)",
-      padding: "8px 16px 12px",
-    }}>
-      {/* Histogram — only show when multiple buckets */}
-      {range.event_histogram.length > 1 && (
-        <div style={{ display: "flex", alignItems: "flex-end", gap: 1, height: 32, marginBottom: 4, padding: "0 2px" }}>
+    <div
+      style={{
+        background: "rgba(10, 9, 8, 0.92)",
+        backdropFilter: "blur(12px)",
+        borderTop: "1px solid rgba(217, 119, 6, 0.06)",
+        padding: "6px 16px 10px",
+      }}
+    >
+      {/* Histogram */}
+      {showHistogram && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "flex-end",
+            gap: 1,
+            height: 24,
+            marginBottom: 6,
+          }}
+        >
           {range.event_histogram.map((bucket) => {
-            const height = (bucket.count / maxCount) * 100;
+            const height = Math.max(4, (bucket.count / maxCount) * 100);
             const bucketMs = new Date(bucket.date).getTime();
-            const isAtPlayhead = Math.abs(bucketMs - currentMs) < 86400000;
+            const pct = ((bucketMs - minMs) / spanMs) * 100;
+            const isNearPlayhead = Math.abs(pct - progress) < 5;
             return (
               <div
                 key={bucket.date}
                 style={{
-                  flex: 1, height: `${height}%`, minHeight: 2,
-                  background: isAtPlayhead ? "rgb(var(--accent-primary))" : "rgba(var(--accent-primary), 0.3)",
-                  borderRadius: "1px 1px 0 0", transition: "background 150ms",
+                  flex: 1,
+                  height: `${height}%`,
+                  background: isNearPlayhead
+                    ? "#d97706"
+                    : "rgba(217, 119, 6, 0.25)",
+                  borderRadius: "1px 1px 0 0",
+                  transition: "background 150ms",
                 }}
               />
             );
           })}
         </div>
       )}
-      {/* Current timestamp */}
-      {isSameDay && (
-        <div style={{
-          textAlign: "center", fontSize: 9, color: "rgb(var(--text-secondary))",
-          marginBottom: 4,
-        }}>
-          {formatTimestamp(currentMs)}
-        </div>
-      )}
-      {/* Slider */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <span style={{ fontSize: 9, color: "rgb(var(--text-muted))", whiteSpace: "nowrap" }}>
-          {formatDate(range.min_date)}
+
+      {/* Current time display */}
+      <div
+        style={{
+          textAlign: "center",
+          fontSize: 10,
+          color: "#8a7e72",
+          marginBottom: 6,
+          letterSpacing: "0.02em",
+        }}
+      >
+        {formatCurrent(currentMs)}
+      </div>
+
+      {/* Custom track + playhead */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <span style={{ fontSize: 9, color: "#4a4540", whiteSpace: "nowrap" }}>
+          {formatLabel(range.min_date)}
         </span>
-        <input type="range" min={minMs} max={maxMs} value={currentMs} onChange={handleChange} style={{ flex: 1 }} />
-        <span style={{ fontSize: 9, color: "rgb(var(--text-muted))", whiteSpace: "nowrap" }}>
-          {formatDate(range.max_date)}
+
+        {/* Track */}
+        <div
+          ref={trackRef}
+          onClick={handleTrackClick}
+          onMouseMove={handleDrag}
+          style={{
+            flex: 1,
+            height: 6,
+            background: "#1a1918",
+            borderRadius: 3,
+            position: "relative",
+            cursor: "pointer",
+            border: "1px solid rgba(217, 119, 6, 0.08)",
+          }}
+        >
+          {/* Progress fill */}
+          <div
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              height: "100%",
+              width: `${progress}%`,
+              background:
+                "linear-gradient(90deg, rgba(217, 119, 6, 0.15), rgba(217, 119, 6, 0.4))",
+              borderRadius: 3,
+              transition: "width 50ms",
+            }}
+          />
+          {/* Playhead */}
+          <div
+            style={{
+              position: "absolute",
+              top: "50%",
+              left: `${progress}%`,
+              transform: "translate(-50%, -50%)",
+              width: 14,
+              height: 14,
+              borderRadius: "50%",
+              background: "#d97706",
+              boxShadow: "0 0 8px rgba(217, 119, 6, 0.6)",
+              border: "2px solid #0a0908",
+              transition: "left 50ms",
+            }}
+          />
+        </div>
+
+        <span style={{ fontSize: 9, color: "#4a4540", whiteSpace: "nowrap" }}>
+          {formatLabel(range.max_date)}
         </span>
       </div>
     </div>
