@@ -5,13 +5,12 @@
 # Runs async — doesn't block Claude's response.
 set -euo pipefail
 
-# Map plugin userConfig → env vars expected by tensory-hook
-export OPENAI_API_KEY="${CLAUDE_PLUGIN_OPTION_OPENAI_API_KEY:-${OPENAI_API_KEY:-}}"
-export ANTHROPIC_API_KEY="${CLAUDE_PLUGIN_OPTION_ANTHROPIC_API_KEY:-${ANTHROPIC_API_KEY:-}}"
-export ANTHROPIC_BASE_URL="${CLAUDE_PLUGIN_OPTION_ANTHROPIC_BASE_URL:-${ANTHROPIC_BASE_URL:-}}"
-export TENSORY_DB="${CLAUDE_PLUGIN_OPTION_TENSORY_DB:-${TENSORY_DB:-}}"
-
 INPUT=$(cat)
+CWD=$(echo "$INPUT" | jq -r '.cwd // empty' 2>/dev/null || echo "")
+
+# Load env vars: .env (project) → userConfig (plugin) → shell env
+# shellcheck disable=SC1091
+source "$(dirname "$0")/load-env.sh"
 
 # Guard: skip if this is a recursive stop hook call
 STOP_ACTIVE=$(echo "$INPUT" | jq -r '.stop_hook_active // false' 2>/dev/null || echo "false")
