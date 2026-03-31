@@ -272,12 +272,11 @@ export function TimelinePage() {
               size={0.5}
               color="rgba(217, 119, 6, 0.03)"
             />
+            {/* ZoomControls must be inside ReactFlow for useReactFlow() context */}
+            <div className="pointer-events-auto absolute right-3 top-3 z-10">
+              <ZoomControls />
+            </div>
           </ReactFlow>
-
-          {/* Zoom controls — top right */}
-          <div className="pointer-events-auto absolute right-3 top-3 z-10">
-            <ZoomControls />
-          </div>
 
           {/* Date display — top center */}
           <div
