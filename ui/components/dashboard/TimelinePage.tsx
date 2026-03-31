@@ -3,6 +3,7 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import {
   ReactFlow,
+  ReactFlowProvider,
   Background,
   type Node,
   type Edge,
@@ -168,6 +169,7 @@ export function TimelinePage() {
   }
 
   return (
+    <ReactFlowProvider>
     <div className="flex h-full w-full" style={{ background: "#0a0908" }}>
       {/* ── Left: Entity Panel ──────────────────── */}
       <div
@@ -272,11 +274,12 @@ export function TimelinePage() {
               size={0.5}
               color="rgba(217, 119, 6, 0.03)"
             />
-            {/* ZoomControls must be inside ReactFlow for useReactFlow() context */}
-            <div className="pointer-events-auto absolute right-3 top-3 z-10">
-              <ZoomControls />
-            </div>
           </ReactFlow>
+
+          {/* ZoomControls outside ReactFlow but inside ReactFlowProvider */}
+          <div className="pointer-events-auto absolute right-3 top-3 z-10">
+            <ZoomControls />
+          </div>
 
           {/* Date display — top center */}
           <div
@@ -306,5 +309,6 @@ export function TimelinePage() {
         />
       </div>
     </div>
+    </ReactFlowProvider>
   );
 }
