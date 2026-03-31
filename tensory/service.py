@@ -713,12 +713,34 @@ class TensoryService:
             return TimelineRange(min_date=now, max_date=now, event_histogram=[])
         min_date = str(row[0])
         max_date = str(row[1])
-        cursor = await db.execute(
-            "SELECT date(created_at) as day, COUNT(*) as cnt"
-            " FROM claims GROUP BY date(created_at) ORDER BY day ASC"
-        )
+
+        # Adaptive granularity: if span < 1 day → group by hour, else by day
+        from datetime import timedelta
+
+        min_dt = _parse_datetime(min_date) or datetime.now(UTC)
+        max_dt = _parse_datetime(max_date) or datetime.now(UTC)
+        span = max_dt - min_dt
+
+        if span < timedelta(days=2):
+            # Hour-level buckets
+            cursor = await db.execute(
+                "SELECT strftime('%Y-%m-%dT%H:00:00', created_at) as bucket,"
+                " COUNT(*) as cnt"
+                " FROM claims"
+                " GROUP BY strftime('%Y-%m-%dT%H:00:00', created_at)"
+                " ORDER BY bucket ASC"
+            )
+        else:
+            # Day-level buckets
+            cursor = await db.execute(
+                "SELECT date(created_at) as bucket, COUNT(*) as cnt"
+                " FROM claims GROUP BY date(created_at) ORDER BY bucket ASC"
+            )
         histogram_rows = await cursor.fetchall()
-        histogram = [HistogramBucket(date=str(r[0]), count=int(r[1])) for r in histogram_rows]
+        histogram = [
+            HistogramBucket(date=str(r[0]), count=int(r[1]))
+            for r in histogram_rows
+        ]
         return TimelineRange(
             min_date=min_date,
             max_date=max_date,
