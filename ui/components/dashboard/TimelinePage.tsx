@@ -311,7 +311,7 @@ export function TimelinePage() {
             onNodeDrag={handleNodeDrag}
             fitView
             fitViewOptions={{ padding: 0.2, maxZoom: 1.5 }}
-            minZoom={0.3}
+            minZoom={0.05}
             maxZoom={3}
             proOptions={{ hideAttribution: true }}
             style={{ background: "#0a0908" }}

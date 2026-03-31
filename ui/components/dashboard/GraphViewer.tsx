@@ -323,7 +323,7 @@ function GraphCanvas({ mode, physics }: GraphCanvasProps) {
         onPaneClick={onPaneClick}
         fitView
         fitViewOptions={{ padding: 0.3, duration: 500 }}
-        minZoom={0.1}
+        minZoom={0.05}
         maxZoom={3}
         proOptions={{ hideAttribution: true }}
         style={{ background: "transparent" }}
