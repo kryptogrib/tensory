@@ -19,11 +19,14 @@ EXTRACT_WITH_CONTEXT: Final[str] = """You are extracting information for a speci
 RESEARCH GOAL: {goal}
 DOMAIN: {domain}
 
-Extract claims from this text that are RELEVANT to the research goal above.
+Extract durable claims from this text that are RELEVANT to the research goal above.
 Skip information that is not relevant to the goal.
+A claim is durable if it would still be true and relevant days or weeks from now.
+Skip transient counts, status updates, and ephemeral metrics.
 
 For each claim, also:
 - Rate its relevance to the research goal (0.0-1.0)
+- Assess durability: permanent (always true), long-term (weeks+), short-term (hours/days)
 - Identify entity relationships (who did what to whom)
 
 TEXT:
@@ -38,7 +41,8 @@ Return ONLY valid JSON (no markdown, no explanation):
       "entities": ["Entity1", "Entity2"],
       "temporal": "when this happened, or null",
       "confidence": 0.0-1.0,
-      "relevance": 0.0-1.0
+      "relevance": 0.0-1.0,
+      "durability": "permanent|long-term|short-term"
     }}
   ],
   "relations": [
@@ -53,8 +57,23 @@ Return ONLY valid JSON (no markdown, no explanation):
 
 If nothing is relevant to the research goal, return {{"claims": [], "relations": []}}"""
 
-EXTRACT_GENERIC: Final[str] = """Extract all factual claims and entity relationships from this text.
-Be extremely detailed. Never summarize or omit specifics.
+EXTRACT_GENERIC: Final[str] = """Extract durable knowledge and entity relationships from this text.
+
+Focus on claims that would be useful to recall in a FUTURE conversation about this topic.
+A claim is durable if it would still be true and relevant days or weeks from now.
+
+EXTRACT (high durability):
+- Decisions and their rationale
+- How things work (architecture, processes, cause-effect)
+- Learned lessons, gotchas, and corrections
+- Preferences, opinions, and assessments
+- Relationships between entities
+
+SKIP (low durability):
+- Counts and metrics that change frequently (test results, row counts, percentages)
+- Status updates ("X is completed", "Y was deployed")
+- Step-by-step plans for the current task
+- Transient implementation details without context
 
 TEXT:
 {text}
@@ -68,7 +87,7 @@ Return ONLY valid JSON (no markdown, no explanation):
       "entities": ["Entity1", "Entity2"],
       "temporal": "when this happened, or null",
       "confidence": 0.0-1.0,
-      "relevance": 1.0
+      "durability": "permanent|long-term|short-term"
     }}
   ],
   "relations": [

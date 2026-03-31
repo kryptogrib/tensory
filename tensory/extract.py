@@ -342,6 +342,12 @@ def _parse_extraction(
         if not claim_text:
             continue
 
+        # Filter out short-term claims (ephemeral noise)
+        durability = str(item.get("durability", "long-term")).lower().strip()
+        if durability == "short-term":
+            logger.debug("Skipping short-term claim: %s", claim_text[:80])
+            continue
+
         claim_type = _parse_claim_type(str(item.get("type", "fact")))
         temporal_val: Any = item.get("temporal")
         claims.append(
