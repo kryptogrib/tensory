@@ -106,19 +106,13 @@ export function TimelinePage() {
     return new Set((snapshot.active_nodes ?? []).map((n) => n.id));
   }, [snapshot]);
 
-  // Active edge set from snapshot
-  const activeEdgeKeys = useMemo(() => {
-    if (!snapshot) return new Set<string>();
-    return new Set(
-      (snapshot.edges ?? []).map((e) => `${e.from_entity}-${e.to_entity}`),
-    );
-  }, [snapshot]);
-
   // Apply active/ghost types to pre-computed layout positions (no physics recompute!)
   const flowNodes = useMemo<Node[]>(() => {
     if (!layout) return [];
+    // If no snapshot loaded yet, show all as active
+    if (activeEntityIds.size === 0) return layout.nodes;
     return layout.nodes.map((node) => {
-      const isActive = activeEntityIds.has(node.id) || activeEntityIds.size === 0;
+      const isActive = activeEntityIds.has(node.id);
       return {
         ...node,
         type: isActive ? "pulse" : "ghost",
@@ -129,23 +123,24 @@ export function TimelinePage() {
               type: (node.data as Record<string, unknown>).entityType as string | null,
               first_seen: "",
             },
-        style: isActive ? undefined : { opacity: 0.15 },
       };
     });
   }, [layout, activeEntityIds]);
 
+  // Edges: show all from layout, dim edges between ghost nodes
   const flowEdges = useMemo<Edge[]>(() => {
     if (!layout) return [];
-    // Show all edges but dim inactive ones
+    if (activeEntityIds.size === 0) return layout.edges;
     return layout.edges.map((edge) => {
-      const key = `${(edge.data as Record<string, unknown>)?.from_entity ?? ""}-${(edge.data as Record<string, unknown>)?.to_entity ?? ""}`;
-      const isActive = activeEdgeKeys.size === 0 || activeEdgeKeys.has(key);
+      const srcActive = activeEntityIds.has(edge.source);
+      const tgtActive = activeEntityIds.has(edge.target);
+      const bothActive = srcActive && tgtActive;
       return {
         ...edge,
-        style: isActive ? undefined : { opacity: 0.05 },
+        style: bothActive ? undefined : { opacity: 0.08 },
       };
     });
-  }, [layout, activeEdgeKeys]);
+  }, [layout, activeEntityIds]);
 
   // ── Node click → select entity ─────────────
   const handleNodeClick: NodeMouseHandler = useCallback((_event, node) => {
