@@ -11,6 +11,7 @@ import {
   forceManyBody,
   forceCenter,
   forceCollide,
+  forceRadial,
   forceX,
   forceY,
   type SimulationNodeDatum,
@@ -136,14 +137,29 @@ export function computeLayout(
   }
 
   // --- Configure and run simulation synchronously ---
-  // Logarithmic scaling: stabilizes at large N instead of blowing up
-  // N=50: charge=-655, link=345, collide=91
-  // N=200: charge=-812, link=425, collide=112
-  // N=400: charge=-912, link=476, collide=122
-  const logN = Math.log2(n + 1);
-  const chargeStrength = -200 - 80 * logN;
-  const linkDist = 120 + 40 * logN;
-  const collideR = 35 + 10 * logN;
+  // Identify isolated nodes (degree 0) vs connected
+  const degreeMap = new Map<string, number>();
+  for (const sn of simNodes) degreeMap.set(sn.nodeId, 0);
+  for (const link of simLinks) {
+    const src = (link.source as SimNode).nodeId;
+    const tgt = (link.target as SimNode).nodeId;
+    degreeMap.set(src, (degreeMap.get(src) ?? 0) + 1);
+    degreeMap.set(tgt, (degreeMap.get(tgt) ?? 0) + 1);
+  }
+
+  const connectedCount = [...degreeMap.values()].filter((d) => d > 0).length;
+  const logC = Math.log2(Math.max(connectedCount, 2));
+
+  // Connected nodes: tight clusters via strong link force
+  const linkDist = 80 + 20 * logC;
+  const collideR = 30 + 5 * logC;
+
+  // Charge: connected nodes repel moderately, isolated nodes repel less
+  const connectedCharge = -150 - 50 * logC;
+  const isolatedCharge = connectedCharge * 0.3;
+
+  // Peripheral radius for isolated nodes
+  const peripheryR = Math.max(300, linkDist * connectedCount * 0.15);
 
   const sim = forceSimulation<SimNode>(simNodes)
     .force(
@@ -151,14 +167,50 @@ export function computeLayout(
       forceLink<SimNode, SimulationLinkDatum<SimNode>>(simLinks)
         .id((d) => d.nodeId)
         .distance(linkDist)
-        .strength(0.5),
+        .strength(1.2), // Strong — pull connected nodes tight
     )
-    .force("charge", forceManyBody<SimNode>().strength(chargeStrength).distanceMax(linkDist * 4))
-    .force("center", forceCenter(0, 0).strength(0.08))
-    .force("collide", forceCollide<SimNode>(collideR).strength(0.8))
-    .force("x", forceX<SimNode>(0).strength(0.04))
-    .force("y", forceY<SimNode>(0).strength(0.04))
-    .velocityDecay(0.35)
+    .force(
+      "charge",
+      forceManyBody<SimNode>()
+        .strength((d) => {
+          const degree = degreeMap.get((d as SimNode).nodeId) ?? 0;
+          return degree > 0 ? connectedCharge : isolatedCharge;
+        })
+        .distanceMax(linkDist * 5),
+    )
+    .force("center", forceCenter(0, 0).strength(0.05))
+    .force("collide", forceCollide<SimNode>(collideR).strength(0.7))
+    // Connected nodes: pull toward center
+    .force(
+      "x",
+      forceX<SimNode>(0).strength((d) => {
+        const degree = degreeMap.get((d as SimNode).nodeId) ?? 0;
+        return degree > 0 ? 0.08 : 0.01;
+      }),
+    )
+    .force(
+      "y",
+      forceY<SimNode>(0).strength((d) => {
+        const degree = degreeMap.get((d as SimNode).nodeId) ?? 0;
+        return degree > 0 ? 0.08 : 0.01;
+      }),
+    )
+    // Isolated nodes: push to periphery ring
+    .force(
+      "radial",
+      forceRadial<SimNode>(
+        (d) => {
+          const degree = degreeMap.get((d as SimNode).nodeId) ?? 0;
+          return degree > 0 ? 0 : peripheryR;
+        },
+        0,
+        0,
+      ).strength((d) => {
+        const degree = degreeMap.get((d as SimNode).nodeId) ?? 0;
+        return degree > 0 ? 0 : 0.3;
+      }),
+    )
+    .velocityDecay(0.4)
     .stop();
 
   // --- Position cache: restore from localStorage for stable layouts ---
@@ -206,17 +258,26 @@ export function computeLayout(
   }
 
   // Build React Flow nodes from final positions
-  const rfNodes: Node[] = simNodes.map((sn) => ({
-    id: sn.nodeId,
-    type: "pulse",
-    position: { x: sn.x ?? 0, y: sn.y ?? 0 },
-    data: {
-      label: sn.label,
-      mentionCount: sn.mentionCount,
-      claimCount: 0,
-      entityType: sn.entityType,
-    },
-  }));
+  const rfNodes: Node[] = simNodes.map((sn) => {
+    const degree = degreeMap.get(sn.nodeId) ?? 0;
+    const isIsolated = degree === 0;
+    return {
+      id: sn.nodeId,
+      type: "pulse",
+      position: { x: sn.x ?? 0, y: sn.y ?? 0 },
+      data: {
+        label: sn.label,
+        // Isolated nodes appear smaller (lower mention count → smaller PulseNode)
+        mentionCount: isIsolated
+          ? Math.min(sn.mentionCount, 1)
+          : sn.mentionCount,
+        claimCount: 0,
+        entityType: sn.entityType,
+      },
+      // Dim isolated nodes
+      style: isIsolated ? { opacity: 0.4 } : undefined,
+    };
+  });
 
   // Keep sim alive but sleeping (alpha->0)
   sim.alpha(0).stop();
