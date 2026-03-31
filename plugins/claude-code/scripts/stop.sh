@@ -19,6 +19,7 @@ if [ "$STOP_ACTIVE" = "true" ]; then
 fi
 
 # Pass hook input to tensory-hook save (it reads last_assistant_message from JSON)
-echo "$INPUT" | uvx --refresh-package tensory --from "tensory[mcp,claude-code]" tensory-hook save 2>/dev/null
+# Pass through [tensory:debug] stderr lines, suppress uvx pip noise
+echo "$INPUT" | uvx --refresh-package tensory --from "tensory[mcp,claude-code]" tensory-hook save 2> >(grep -v "^[[:space:]]*\(Downloading\|Downloaded\|Installed\|Resolved\|Audited\|Prepared\|Using\)" >&2)
 
 exit 0
