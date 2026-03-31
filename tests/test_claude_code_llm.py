@@ -119,10 +119,10 @@ async def test_make_llm_missing_sdk(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ANTHROPIC_BASE_URL", "claude-code")
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
 
-    # Remove mock SDK if present
+    # Block the import so it raises ImportError even if the package is installed
     import sys
 
-    sys.modules.pop("claude_agent_sdk", None)
+    monkeypatch.setitem(sys.modules, "claude_agent_sdk", None)
 
     import tensory_hook
 
