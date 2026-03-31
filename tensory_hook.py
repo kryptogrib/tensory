@@ -23,6 +23,8 @@ from typing import Any
 logging.basicConfig(level=logging.WARNING, stream=sys.stderr)
 logger = logging.getLogger("tensory-hook")
 
+DEBUG = os.environ.get("TENSORY_DEBUG", "").strip() in ("1", "true", "yes")
+
 # ── Store factory (reuses tensory_mcp patterns) ─────────────────────────
 
 
@@ -128,14 +130,21 @@ async def cmd_recall(cwd: str) -> None:
 
     Prints hook-compatible JSON with additionalContext to stdout.
     """
+    import time
+
+    start = time.monotonic()
     store = await _create_store()
     try:
         # Build a query from the project directory name
         project_name = os.path.basename(cwd) if cwd else "project"
         results = await store.search(project_name, limit=10)
+        elapsed_ms = (time.monotonic() - start) * 1000
 
         if not results:
-            # No memories yet — return empty context
+            if DEBUG:
+                _debug_stderr(
+                    f"recall: query='{project_name}' results=0 time={elapsed_ms:.0f}ms"
+                )
             _print_hook_output("")
             return
 
@@ -146,7 +155,17 @@ async def cmd_recall(cwd: str) -> None:
 
         # Prepend a header so Claude knows what this is
         header = f"[tensory] Recalled {len(results)} memories for project '{project_name}':\n\n"
-        _print_hook_output(header + context_text)
+
+        # Debug: add visible block showing what was recalled
+        if DEBUG:
+            debug_block = _format_debug_recall(project_name, results, elapsed_ms)
+            _debug_stderr(
+                f"recall: query='{project_name}' results={len(results)} "
+                f"time={elapsed_ms:.0f}ms"
+            )
+            _print_hook_output(header + context_text + "\n\n" + debug_block)
+        else:
+            _print_hook_output(header + context_text)
     finally:
         await store.close()
 
@@ -157,10 +176,15 @@ async def cmd_save(transcript: str) -> None:
     Uses Tensory's native pipeline: text → LLM extraction → claims + collisions.
     Falls back to raw claim storage if LLM is unavailable.
     """
+    import time
+
     if not transcript or len(transcript.strip()) < 50:
+        if DEBUG:
+            _debug_stderr("save: skipped — transcript too short")
         logger.info("Transcript too short, skipping save")
         return
 
+    start = time.monotonic()
     store = await _create_store()
     try:
         # Truncate very long transcripts (last 8000 chars ≈ last few turns)
@@ -171,6 +195,11 @@ async def cmd_save(transcript: str) -> None:
         if store._llm is not None:
             # Full pipeline: LLM extraction → claims + collision detection
             result = await store.add(transcript, source="claude-code:hook")
+            elapsed_ms = (time.monotonic() - start) * 1000
+
+            if DEBUG:
+                _format_debug_save(result, elapsed_ms)
+
             logger.info(
                 "Saved %d claims, %d collisions",
                 len(result.claims),
@@ -183,6 +212,9 @@ async def cmd_save(transcript: str) -> None:
             await store.add_claims(
                 [Claim(text=transcript[:2000], entities=[], type="experience")],
             )
+            elapsed_ms = (time.monotonic() - start) * 1000
+            if DEBUG:
+                _debug_stderr(f"save: raw transcript (no LLM) time={elapsed_ms:.0f}ms")
             logger.info("Saved raw transcript (no LLM)")
     finally:
         await store.close()
@@ -206,6 +238,47 @@ async def cmd_health() -> None:
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────
+
+
+def _debug_stderr(msg: str) -> None:
+    """Print debug message to stderr (visible in Claude Code hook output)."""
+    print(f"[tensory:debug] {msg}", file=sys.stderr)
+
+
+def _format_debug_recall(query: str, results: list[Any], elapsed_ms: float) -> str:
+    """Format debug block for recall — appended to additionalContext."""
+    lines = [
+        f"[tensory:debug] Recall results (query='{query}', {len(results)} found, {elapsed_ms:.0f}ms):",
+    ]
+    for i, r in enumerate(results[:5], 1):
+        claim = r.claim
+        entities = ", ".join(claim.entities[:3]) if claim.entities else "—"
+        lines.append(
+            f"  {i}. [{claim.type}, score={r.score:.2f}] {claim.text[:80]}"
+            f"{'...' if len(claim.text) > 80 else ''}"
+        )
+        lines.append(f"     entities: {entities}")
+    if len(results) > 5:
+        lines.append(f"  ... and {len(results) - 5} more")
+    return "\n".join(lines)
+
+
+def _format_debug_save(result: Any, elapsed_ms: float) -> None:
+    """Print debug info about saved claims to stderr."""
+    from collections import Counter
+
+    type_counts = Counter(c.type for c in result.claims)
+    types_str = ", ".join(f"{count} {t}" for t, count in type_counts.most_common())
+
+    _debug_stderr(
+        f"save: {len(result.claims)} claims ({types_str}), "
+        f"{len(result.collisions)} collisions, "
+        f"time={elapsed_ms:.0f}ms"
+    )
+
+    # Show collision details if any
+    for col in result.collisions[:3]:
+        _debug_stderr(f"  collision: {col.type} — {col.explanation[:60] if col.explanation else '?'}")
 
 
 def _print_hook_output(additional_context: str) -> None:
