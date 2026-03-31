@@ -14,20 +14,18 @@ from typing import Final
 
 # ── 1. Context-aware extraction (used by extract.py) ─────────────────────
 
-EXTRACT_WITH_CONTEXT: Final[str] = """You are extracting information for a specific research goal.
+EXTRACT_WITH_CONTEXT: Final[str] = """You are building a long-term knowledge base focused on a specific research goal.
 
 RESEARCH GOAL: {goal}
 DOMAIN: {domain}
 
-Extract durable claims from this text that are RELEVANT to the research goal above.
-Skip information that is not relevant to the goal.
-A claim is durable if it would still be true and relevant days or weeks from now.
-Skip transient counts, status updates, and ephemeral metrics.
+Extract claims that are RELEVANT to the research goal and would be valuable when recalled \
+weeks or months from now by someone with no memory of this conversation.
 
-For each claim, also:
-- Rate its relevance to the research goal (0.0-1.0)
-- Assess durability: permanent (always true), long-term (weeks+), short-term (hours/days)
-- Identify entity relationships (who did what to whom)
+The test for every claim: "Would recalling this change how I think or act on this research goal?"
+Write each claim to be SELF-CONTAINED — understandable without the original text.
+
+For each claim, rate its relevance to the research goal (0.0-1.0).
 
 TEXT:
 {text}
@@ -36,7 +34,7 @@ Return ONLY valid JSON (no markdown, no explanation):
 {{
   "claims": [
     {{
-      "text": "atomic claim",
+      "text": "self-contained atomic claim",
       "type": "fact|experience|observation|opinion",
       "entities": ["Entity1", "Entity2"],
       "temporal": "when this happened, or null",
@@ -49,7 +47,7 @@ Return ONLY valid JSON (no markdown, no explanation):
     {{
       "from": "Entity1",
       "to": "Entity2",
-      "type": "PARTNERED_WITH|INVESTED_IN|DEPARTED_FROM|...",
+      "type": "relationship type",
       "fact": "human readable description"
     }}
   ]
@@ -57,23 +55,16 @@ Return ONLY valid JSON (no markdown, no explanation):
 
 If nothing is relevant to the research goal, return {{"claims": [], "relations": []}}"""
 
-EXTRACT_GENERIC: Final[str] = """Extract durable knowledge and entity relationships from this text.
+EXTRACT_GENERIC: Final[str] = """You are building a long-term knowledge base. Extract claims that would be \
+valuable when recalled weeks or months from now by someone with no memory of this conversation.
 
-Focus on claims that would be useful to recall in a FUTURE conversation about this topic.
-A claim is durable if it would still be true and relevant days or weeks from now.
+The test for every claim: "Would recalling this change how I think or act?"
+- YES → extract it. Causality, corrections, relationships, how things work, why decisions were made.
+- NO → skip it. Narration, status updates, counts, process logs, things obvious from context.
 
-EXTRACT (high durability):
-- Decisions and their rationale
-- How things work (architecture, processes, cause-effect)
-- Learned lessons, gotchas, and corrections
-- Preferences, opinions, and assessments
-- Relationships between entities
-
-SKIP (low durability):
-- Counts and metrics that change frequently (test results, row counts, percentages)
-- Status updates ("X is completed", "Y was deployed")
-- Step-by-step plans for the current task
-- Transient implementation details without context
+Write each claim to be SELF-CONTAINED — understandable without the original text.
+Bad:  "The issue was fixed by changing line 240"
+Good: "sqlite-vec returns L2 distance by default, not cosine — schema must set distance_metric=cosine explicitly"
 
 TEXT:
 {text}
@@ -82,7 +73,7 @@ Return ONLY valid JSON (no markdown, no explanation):
 {{
   "claims": [
     {{
-      "text": "atomic claim",
+      "text": "self-contained atomic claim",
       "type": "fact|experience|observation|opinion",
       "entities": ["Entity1", "Entity2"],
       "temporal": "when this happened, or null",
@@ -94,7 +85,7 @@ Return ONLY valid JSON (no markdown, no explanation):
     {{
       "from": "Entity1",
       "to": "Entity2",
-      "type": "PARTNERED_WITH|INVESTED_IN|DEPARTED_FROM|...",
+      "type": "relationship type",
       "fact": "human readable description"
     }}
   ]
