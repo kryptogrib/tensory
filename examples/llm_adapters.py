@@ -16,12 +16,14 @@ Usage:
 
     # From env (ANTHROPIC_BASE_URL, ANTHROPIC_API_KEY):
     store = await Tensory.create("memory.db", llm=anthropic_from_env())
+
+    # Claude Code SDK (no API key, uses claude auth login):
+    store = await Tensory.create("memory.db", llm=claude_code_llm())
 """
 
 from __future__ import annotations
 
 import os
-
 
 # ── OpenAI ────────────────────────────────────────────────────────────────
 
@@ -105,23 +107,32 @@ def anthropic_llm(
 def anthropic_from_env(
     model: str | None = None,
 ) -> object:
-    """Create Anthropic adapter from environment variables.
+    """Create LLM adapter from environment variables.
 
     Reads:
-        ANTHROPIC_BASE_URL  — Proxy URL (if set)
+        ANTHROPIC_BASE_URL  — Proxy URL, or "claude-code" for SDK mode
         ANTHROPIC_API_KEY   — API key / proxy key
         ANTHROPIC_AUTH_TOKEN — Alternative to api_key
         TENSORY_MODEL       — Model (default: claude-haiku-4-5-20251001)
+
+    When ANTHROPIC_BASE_URL=claude-code, routes to claude_code_llm()
+    (no API key needed, uses OAuth from `claude auth login`).
 
     Compatible with .env / .env.local from openHunter:
         ANTHROPIC_BASE_URL=http://localhost:8317
         ANTHROPIC_API_KEY=signal-hunter-local
     """
+    base_url = os.environ.get("ANTHROPIC_BASE_URL")
+    resolved_model = model or os.environ.get("TENSORY_MODEL", "claude-haiku-4-5-20251001")
+
+    if base_url == "claude-code":
+        return claude_code_llm(model=resolved_model)
+
     return anthropic_llm(
-        model=model or os.environ.get("TENSORY_MODEL", "claude-haiku-4-5-20251001"),
+        model=resolved_model,
         api_key=os.environ.get("ANTHROPIC_API_KEY"),
         auth_token=os.environ.get("ANTHROPIC_AUTH_TOKEN"),
-        base_url=os.environ.get("ANTHROPIC_BASE_URL"),
+        base_url=base_url,
     )
 
 
@@ -169,6 +180,52 @@ def openai_compatible_llm(
             temperature=0,
         )
         return response.choices[0].message.content or ""
+
+    return _call
+
+
+# ── Claude Code SDK (no API key) ─────────────────────────────────────────
+
+
+def claude_code_llm(
+    model: str = "claude-haiku-4-5-20251001",
+) -> object:
+    """Claude Code SDK adapter. No API key needed.
+
+    Uses claude-agent-sdk to make LLM calls via OAuth tokens
+    from ``claude auth login`` (stored in system keychain).
+
+    Requires:
+        pip install claude-agent-sdk   (or: pip install tensory[claude-code])
+        Claude Code CLI >= 2.0.0
+        ``claude auth login`` completed
+
+    Args:
+        model: Model to use. Haiku is cheaper for extraction.
+
+    Examples:
+        # Direct usage
+        store = await Tensory.create("memory.db", llm=claude_code_llm())
+
+        # Via env (ANTHROPIC_BASE_URL=claude-code)
+        store = await Tensory.create("memory.db", llm=anthropic_from_env())
+    """
+    from claude_agent_sdk import (  # type: ignore[import-untyped]
+        AssistantMessage,
+        ClaudeAgentOptions,
+        TextBlock,
+        query,
+    )
+
+    async def _call(prompt: str) -> str:
+        text = ""
+        options = ClaudeAgentOptions(max_turns=1, allowed_tools=[], model=model)
+        async for message in query(prompt=prompt, options=options):
+            if isinstance(message, AssistantMessage):
+                for block in message.content:
+                    if isinstance(block, TextBlock):
+                        text += block.text
+        return text
 
     return _call
 

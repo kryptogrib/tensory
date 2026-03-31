@@ -24,7 +24,7 @@
     },
     "ANTHROPIC_BASE_URL": {
       "title": "Anthropic Base URL",
-      "description": "Proxy URL (CLIProxyAPI, LiteLLM, etc.). Leave empty for direct API access.",
+      "description": "Proxy URL, or 'claude-code' to use Claude Code SDK (no API key needed). Leave empty for direct API access.",
       "type": "string",
       "sensitive": false
     },

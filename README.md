@@ -20,6 +20,8 @@ claude plugin install --source github kryptogrib/tensory --path plugins/claude-c
 
 On install, Claude Code will ask for your API keys. That's it — memory is active.
 
+> **Full integration docs:** [plugins/claude-code/README.md](plugins/claude-code/README.md) — all LLM provider options (including no-API-key mode via Claude Code SDK), configuration matrix, troubleshooting.
+
 **Or ask your agent to install it.** Send this prompt:
 
 > Install the tensory plugin for long-term memory. Run:

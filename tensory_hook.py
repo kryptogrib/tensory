@@ -38,10 +38,53 @@ def _make_embedder() -> Any:
 
 
 def _make_llm() -> Any:
-    """Create LLM adapter from env vars."""
+    """Create LLM adapter from env vars.
+
+    Provider priority:
+    1. ANTHROPIC_BASE_URL=claude-code → Claude Agent SDK (no API key)
+    2. ANTHROPIC_BASE_URL + ANTHROPIC_API_KEY → Anthropic API (proxy/direct)
+    3. Neither → None (LLM extraction unavailable)
+    """
     base_url = os.environ.get("ANTHROPIC_BASE_URL")
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     model = os.environ.get("TENSORY_MODEL", "claude-haiku-4-5-20251001")
+
+    # Claude Code SDK mode — no API key needed
+    if base_url == "claude-code":
+        try:
+            from claude_agent_sdk import (  # type: ignore[import-untyped]
+                AssistantMessage,
+                ClaudeAgentOptions,
+                TextBlock,
+                query,
+            )
+        except ImportError:
+            logger.warning(
+                "ANTHROPIC_BASE_URL=claude-code but claude-agent-sdk not installed. "
+                "Install with: pip install tensory[claude-code]"
+            )
+            return None
+
+        async def sdk_call(prompt: str) -> str:
+            text = ""
+            options = ClaudeAgentOptions(max_turns=1, allowed_tools=[], model=model)
+            try:
+                async for message in query(prompt=prompt, options=options):
+                    if isinstance(message, AssistantMessage):
+                        for block in message.content:
+                            if isinstance(block, TextBlock):
+                                text += block.text
+            except Exception as e:
+                err_msg = str(e).lower()
+                if any(w in err_msg for w in ("auth", "login", "credential", "token")):
+                    logger.error(
+                        "Claude Code SDK auth failed. Run 'claude auth login'. Error: %s", e
+                    )
+                raise
+            return text
+
+        logger.info("Using Claude Code SDK (model=%s)", model)
+        return sdk_call
 
     if not base_url and not api_key:
         return None

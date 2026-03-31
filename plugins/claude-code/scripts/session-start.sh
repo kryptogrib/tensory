@@ -16,16 +16,24 @@ CWD=$(echo "$INPUT" | jq -r '.cwd // empty' 2>/dev/null || echo "")
 source "$(dirname "$0")/load-env.sh"
 
 # ── First-run detection: no API keys configured ──────────────────────────
-if [ -z "${OPENAI_API_KEY:-}" ] && [ -z "${ANTHROPIC_API_KEY:-}" ]; then
+if [ -z "${OPENAI_API_KEY:-}" ] && [ -z "${ANTHROPIC_API_KEY:-}" ] && [ "${ANTHROPIC_BASE_URL:-}" != "claude-code" ]; then
   SETUP_MSG="[tensory] Memory plugin installed but not configured yet.
 
 To activate, create a .env file in your project root:
 
 \`\`\`bash
 cat > .env << 'EOF'
-OPENAI_API_KEY=sk-...        # Required: for vector search (embeddings)
-ANTHROPIC_API_KEY=sk-ant-... # Optional: for LLM claim extraction
-# ANTHROPIC_BASE_URL=        # Optional: proxy URL
+# Option 1: Full setup (embeddings + LLM extraction)
+OPENAI_API_KEY=sk-...        # For vector search (embeddings)
+ANTHROPIC_API_KEY=sk-ant-... # For LLM claim extraction
+
+# Option 2: Via proxy
+# ANTHROPIC_BASE_URL=http://localhost:8317
+# ANTHROPIC_API_KEY=signal-hunter-local
+
+# Option 3: No API key (uses Claude Code's own model)
+# ANTHROPIC_BASE_URL=claude-code
+
 # TENSORY_DB=~/.local/share/tensory/memory.db
 EOF
 \`\`\`
@@ -43,6 +51,6 @@ After creating .env, restart the session — memory will activate automatically.
 fi
 
 # ── Normal run: recall memories ──────────────────────────────────────────
-echo "$INPUT" | uvx --from "tensory[mcp]" tensory-hook recall 2>/dev/null
+echo "$INPUT" | uvx --from "tensory[mcp,claude-code]" tensory-hook recall 2>/dev/null
 
 exit 0

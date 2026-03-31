@@ -28,7 +28,8 @@ openai = ["openai>=1.0"]
 neo4j = ["neo4j>=5.0"]
 mcp = ["mcp[cli]>=1.0", "anthropic>=0.40", "openai>=1.0"]
 ui = ["fastapi>=0.115", "uvicorn[standard]>=0.34", "httpx>=0.28"]
-all = ["tensory[mcp,ui]"]
+claude-code = ["claude-agent-sdk>=0.1.50"]
+all = ["tensory[mcp,ui,claude-code]"]
 
 [project.scripts]
 tensory-mcp = "tensory_mcp:main"

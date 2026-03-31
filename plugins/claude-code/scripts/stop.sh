@@ -19,6 +19,6 @@ if [ "$STOP_ACTIVE" = "true" ]; then
 fi
 
 # Pass hook input to tensory-hook save (it reads last_assistant_message from JSON)
-echo "$INPUT" | uvx --from "tensory[mcp]" tensory-hook save 2>/dev/null
+echo "$INPUT" | uvx --from "tensory[mcp,claude-code]" tensory-hook save 2>/dev/null
 
 exit 0
