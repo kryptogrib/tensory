@@ -58,6 +58,7 @@ export function TimelinePage() {
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [selectedEntity, setSelectedEntity] = useState<string | null>(null);
   const [debouncedDateStr, setDebouncedDateStr] = useState<string | null>(null);
+  const [entitySearch, setEntitySearch] = useState("");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Data fetching ──────────────────────────
@@ -154,6 +155,12 @@ export function TimelinePage() {
       .map((e) => e.name);
   }, [snapshot]);
 
+  const filteredEntityNames = useMemo(() => {
+    if (!entitySearch) return entityNames;
+    const q = entitySearch.toLowerCase();
+    return entityNames.filter((n) => n.toLowerCase().includes(q));
+  }, [entityNames, entitySearch]);
+
   // Stats from snapshot
   const stats = snapshot?.stats ?? { claims: 0, superseded: 0 };
 
@@ -181,15 +188,32 @@ export function TimelinePage() {
         }}
       >
         {/* Entity Picker */}
-        <HudWindow title="Entity">
-          <div style={{ padding: "4px 12px 8px", maxHeight: 120, overflowY: "auto" }}>
-            {entityNames.length === 0 ? (
+        <HudWindow title={`Entity (${entityNames.length})`}>
+          {/* Search */}
+          <div style={{ padding: "4px 12px" }}>
+            <input
+              type="text"
+              placeholder="Search entities..."
+              value={entitySearch}
+              onChange={(e) => setEntitySearch(e.target.value)}
+              className="w-full rounded px-2 py-1"
+              style={{
+                fontSize: 10,
+                background: "rgba(217, 119, 6, 0.05)",
+                border: "1px solid rgba(217, 119, 6, 0.1)",
+                color: "rgb(var(--text-primary))",
+                outline: "none",
+              }}
+            />
+          </div>
+          <div style={{ padding: "4px 12px 8px", maxHeight: 180, overflowY: "auto" }}>
+            {filteredEntityNames.length === 0 ? (
               <div style={{ fontSize: 10, color: "rgb(var(--text-muted))", padding: "4px 0" }}>
-                No entities at this date.
+                {entityNames.length === 0 ? "No entities at this date." : "No matches."}
               </div>
             ) : (
               <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                {entityNames.map((name) => (
+                {filteredEntityNames.map((name) => (
                   <button
                     key={name}
                     onClick={() => setSelectedEntity(name)}
@@ -264,7 +288,8 @@ export function TimelinePage() {
             onNodeClick={handleNodeClick}
             onNodeDrag={handleNodeDrag}
             fitView
-            minZoom={0.1}
+            fitViewOptions={{ padding: 0.2, maxZoom: 1.5 }}
+            minZoom={0.3}
             maxZoom={3}
             proOptions={{ hideAttribution: true }}
             style={{ background: "#0a0908" }}
