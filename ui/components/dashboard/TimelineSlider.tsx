@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useCallback, useMemo, useRef } from "react";
+import { memo, useCallback, useMemo, useRef, useEffect, useState } from "react";
 import type { TimelineRange } from "@/lib/types";
 
 interface TimelineSliderProps {
@@ -14,28 +14,47 @@ function TimelineSliderComponent({ range, value, onChange }: TimelineSliderProps
   const maxMs = new Date(range.max_date).getTime();
   const spanMs = maxMs - minMs || 1;
   const currentMs = value.getTime();
-  const progress = ((currentMs - minMs) / spanMs) * 100;
+  const progress = Math.max(0, Math.min(100, ((currentMs - minMs) / spanMs) * 100));
   const trackRef = useRef<HTMLDivElement>(null);
+  const [isDragging, setIsDragging] = useState(false);
 
   const isSameDay = spanMs < 86400000;
 
-  const handleTrackClick = useCallback(
-    (e: React.MouseEvent<HTMLDivElement>) => {
+  // Convert mouse X to date
+  const xToDate = useCallback(
+    (clientX: number) => {
       const track = trackRef.current;
       if (!track) return;
       const rect = track.getBoundingClientRect();
-      const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
       onChange(new Date(minMs + pct * spanMs));
     },
     [minMs, spanMs, onChange],
   );
 
-  const handleDrag = useCallback(
-    (e: React.MouseEvent<HTMLDivElement>) => {
-      if (e.buttons !== 1) return; // only left button
-      handleTrackClick(e);
+  // Document-level mouse tracking while dragging (cursor can leave track)
+  useEffect(() => {
+    if (!isDragging) return;
+    const handleMouseMove = (e: MouseEvent) => {
+      e.preventDefault();
+      xToDate(e.clientX);
+    };
+    const handleMouseUp = () => setIsDragging(false);
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [isDragging, xToDate]);
+
+  const handleMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      setIsDragging(true);
+      xToDate(e.clientX);
     },
-    [handleTrackClick],
+    [xToDate],
   );
 
   const formatLabel = (iso: string) => {
@@ -62,12 +81,15 @@ function TimelineSliderComponent({ range, value, onChange }: TimelineSliderProps
     });
   };
 
-  // Histogram bars (only when >1 bucket)
+  // Histogram
   const maxCount = useMemo(
     () => Math.max(1, ...range.event_histogram.map((b) => b.count)),
     [range.event_histogram],
   );
   const showHistogram = range.event_histogram.length > 1;
+
+  // Active entity count (from progress) for display
+  const entityPct = Math.round(progress);
 
   return (
     <div
@@ -123,59 +145,74 @@ function TimelineSliderComponent({ range, value, onChange }: TimelineSliderProps
         }}
       >
         {formatCurrent(currentMs)}
+        <span style={{ marginLeft: 8, color: "#4a4540", fontSize: 9 }}>
+          {entityPct}%
+        </span>
       </div>
 
-      {/* Custom track + playhead */}
+      {/* Custom track + playhead — tall hit area */}
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
         <span style={{ fontSize: 9, color: "#4a4540", whiteSpace: "nowrap" }}>
           {formatLabel(range.min_date)}
         </span>
 
-        {/* Track */}
+        {/* Track wrapper — large click/drag area */}
         <div
           ref={trackRef}
-          onClick={handleTrackClick}
-          onMouseMove={handleDrag}
+          onMouseDown={handleMouseDown}
           style={{
             flex: 1,
-            height: 6,
-            background: "#1a1918",
-            borderRadius: 3,
-            position: "relative",
+            height: 28,
+            display: "flex",
+            alignItems: "center",
             cursor: "pointer",
-            border: "1px solid rgba(217, 119, 6, 0.08)",
+            userSelect: "none",
+            touchAction: "none",
           }}
         >
-          {/* Progress fill */}
+          {/* Visual track (thin line inside tall hit area) */}
           <div
             style={{
-              position: "absolute",
-              top: 0,
-              left: 0,
-              height: "100%",
-              width: `${progress}%`,
-              background:
-                "linear-gradient(90deg, rgba(217, 119, 6, 0.15), rgba(217, 119, 6, 0.4))",
+              width: "100%",
+              height: 6,
+              background: "#1a1918",
               borderRadius: 3,
-              transition: "width 50ms",
+              position: "relative",
+              border: "1px solid rgba(217, 119, 6, 0.08)",
             }}
-          />
-          {/* Playhead */}
-          <div
-            style={{
-              position: "absolute",
-              top: "50%",
-              left: `${progress}%`,
-              transform: "translate(-50%, -50%)",
-              width: 14,
-              height: 14,
-              borderRadius: "50%",
-              background: "#d97706",
-              boxShadow: "0 0 8px rgba(217, 119, 6, 0.6)",
-              border: "2px solid #0a0908",
-              transition: "left 50ms",
-            }}
-          />
+          >
+            {/* Progress fill */}
+            <div
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                height: "100%",
+                width: `${progress}%`,
+                background:
+                  "linear-gradient(90deg, rgba(217, 119, 6, 0.15), rgba(217, 119, 6, 0.4))",
+                borderRadius: 3,
+              }}
+            />
+            {/* Playhead */}
+            <div
+              style={{
+                position: "absolute",
+                top: "50%",
+                left: `${progress}%`,
+                transform: "translate(-50%, -50%)",
+                width: 16,
+                height: 16,
+                borderRadius: "50%",
+                background: "#d97706",
+                boxShadow: isDragging
+                  ? "0 0 12px rgba(217, 119, 6, 0.8)"
+                  : "0 0 8px rgba(217, 119, 6, 0.5)",
+                border: "2px solid #0a0908",
+                transition: isDragging ? "none" : "left 50ms",
+              }}
+            />
+          </div>
         </div>
 
         <span style={{ fontSize: 9, color: "#4a4540", whiteSpace: "nowrap" }}>
