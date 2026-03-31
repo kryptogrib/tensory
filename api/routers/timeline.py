@@ -39,6 +39,13 @@ async def get_timeline_range(service: ServiceDep) -> dict[str, Any]:
     return result.model_dump()
 
 
+@router.get("/entity-timestamps")
+async def get_entity_timestamps(service: ServiceDep) -> list[dict[str, Any]]:
+    """Get earliest claim timestamp per entity for client-side filtering."""
+    entries = await service.get_entity_timestamps()
+    return [e.model_dump() for e in entries]
+
+
 @router.get("/{entity_name}")
 async def get_entity_timeline(
     entity_name: str,

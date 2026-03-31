@@ -123,3 +123,9 @@ export interface TimelineRange {
   max_date: string;
   event_histogram: HistogramBucket[];
 }
+
+export interface EntityTimestamp {
+  entity_id: string;
+  entity_name: string;
+  earliest_at: string;
+}

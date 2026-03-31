@@ -5,6 +5,7 @@ import {
   fetchEntityTimeline,
   fetchGraphSnapshot,
   fetchTimelineRange,
+  fetchEntityTimestamps,
 } from "@/lib/api";
 
 export function useTimelineRange() {
@@ -28,5 +29,12 @@ export function useEntityTimeline(entity: string | null) {
     queryKey: ["entity-timeline", entity],
     queryFn: () => fetchEntityTimeline(entity!),
     enabled: !!entity,
+  });
+}
+
+export function useEntityTimestamps() {
+  return useQuery({
+    queryKey: ["entity-timestamps"],
+    queryFn: fetchEntityTimestamps,
   });
 }

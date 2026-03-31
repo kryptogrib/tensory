@@ -9,6 +9,7 @@ import type {
   TimelineEntry,
   GraphSnapshot,
   TimelineRange,
+  EntityTimestamp,
 } from "./types";
 
 // In production (static export served by FastAPI) — same origin, no prefix needed.
@@ -100,4 +101,8 @@ export async function fetchGraphSnapshot(at: string): Promise<GraphSnapshot> {
 
 export async function fetchTimelineRange(): Promise<TimelineRange> {
   return apiFetch<TimelineRange>("/api/timeline/range/bounds");
+}
+
+export async function fetchEntityTimestamps(): Promise<EntityTimestamp[]> {
+  return apiFetch<EntityTimestamp[]>("/api/timeline/entity-timestamps");
 }

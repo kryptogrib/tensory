@@ -97,6 +97,14 @@ class ClaimDetail(BaseModel):
     related_entities: list[EntityRelation]
 
 
+class EntityTimestamp(BaseModel):
+    """When an entity first appeared (based on its earliest claim)."""
+
+    entity_id: str
+    entity_name: str
+    earliest_at: str  # ISO datetime of earliest claim mentioning this entity
+
+
 class TimelineEntry(BaseModel):
     """A claim in an entity's timeline, enriched with supersede chain info."""
 
@@ -749,3 +757,25 @@ class TensoryService:
             max_date=max_date,
             event_histogram=histogram,
         )
+
+    async def get_entity_timestamps(self) -> list[EntityTimestamp]:
+        """Get earliest claim timestamp per entity (for client-side timeline filtering)."""
+        db = self.store.db
+        assert db is not None
+        cursor = await db.execute(
+            """SELECT e.id, e.name, MIN(c.created_at) as earliest
+               FROM entities e
+               JOIN claim_entities ce ON ce.entity_id = e.id
+               JOIN claims c ON c.id = ce.claim_id
+               GROUP BY e.id, e.name
+               ORDER BY earliest ASC"""
+        )
+        rows = await cursor.fetchall()
+        return [
+            EntityTimestamp(
+                entity_id=str(r[0]),
+                entity_name=str(r[1]),
+                earliest_at=str(r[2]),
+            )
+            for r in rows
+        ]

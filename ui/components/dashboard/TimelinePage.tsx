@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useMemo, useRef, useEffect } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -12,7 +12,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
-import { useTimelineRange, useGraphSnapshot, useEntityTimeline } from "@/hooks/use-timeline";
+import { useTimelineRange, useEntityTimeline, useEntityTimestamps } from "@/hooks/use-timeline";
 import { useGraphLayout } from "@/hooks/use-graph-layout";
 import { useGraphEntities, useGraphEdges } from "@/hooks/use-graph";
 import { TimelineSlider } from "./TimelineSlider";
@@ -58,53 +58,51 @@ export function TimelinePage() {
   // ── State ──────────────────────────────────
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [selectedEntity, setSelectedEntity] = useState<string | null>(null);
-  const [debouncedDateStr, setDebouncedDateStr] = useState<string | null>(null);
   const [entitySearch, setEntitySearch] = useState("");
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // ── Data fetching ──────────────────────────
+  // ── Data fetching (all loaded ONCE, no per-slider API calls) ──
   const { data: timelineRange } = useTimelineRange();
-  const { data: snapshot } = useGraphSnapshot(debouncedDateStr);
   const { data: entityEntries } = useEntityTimeline(selectedEntity);
-
-  // Load ALL entities + edges ONCE for stable layout (no re-layout on slider)
   const { data: allGraphEntities } = useGraphEntities({ limit: 500, min_mentions: 1 });
   const { data: allGraphEdges } = useGraphEdges({});
+  const { data: entityTimestamps } = useEntityTimestamps();
+
+  // Build entity_id → earliest_at map for instant client-side filtering
+  const entityEarliestMap = useMemo(() => {
+    const map = new Map<string, number>(); // entity_id → ms
+    if (!entityTimestamps) return map;
+    for (const et of entityTimestamps) {
+      map.set(et.entity_id, new Date(et.earliest_at).getTime());
+    }
+    return map;
+  }, [entityTimestamps]);
 
   // Initialize slider at max_date when range loads
   useEffect(() => {
     if (timelineRange && selectedDate === null) {
-      const maxDate = new Date(timelineRange.max_date);
-      setSelectedDate(maxDate);
-      setDebouncedDateStr(timelineRange.max_date);
+      setSelectedDate(new Date(timelineRange.max_date));
     }
   }, [timelineRange, selectedDate]);
 
-  // Slider change — NO debounce for the slider itself (instant),
-  // debounce only for the API snapshot call
+  // Slider change — instant, no API calls (client-side filtering)
   const handleDateChange = useCallback((date: Date) => {
     setSelectedDate(date);
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      setDebouncedDateStr(date.toISOString());
-    }, 300);
-  }, []);
-
-  // Cleanup debounce on unmount
-  useEffect(() => {
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-    };
   }, []);
 
   // ── Layout: compute ONCE from full graph, not per snapshot ───
   const { layout } = useGraphLayout(allGraphEntities, allGraphEdges);
 
-  // Active entity IDs from snapshot (changes on slider, but layout stays stable)
+  // Active entity IDs — computed CLIENT-SIDE from entityEarliestMap + selectedDate
+  // No API call, instant on every slider movement
   const activeEntityIds = useMemo(() => {
-    if (!snapshot) return new Set<string>();
-    return new Set((snapshot.active_nodes ?? []).map((n) => n.id));
-  }, [snapshot]);
+    if (!selectedDate || entityEarliestMap.size === 0) return new Set<string>();
+    const cutoffMs = selectedDate.getTime();
+    const active = new Set<string>();
+    for (const [entityId, earliestMs] of entityEarliestMap) {
+      if (earliestMs <= cutoffMs) active.add(entityId);
+    }
+    return active;
+  }, [selectedDate, entityEarliestMap]);
 
   // Apply active/ghost types to pre-computed layout positions (no physics recompute!)
   const flowNodes = useMemo<Node[]>(() => {
@@ -155,7 +153,6 @@ export function TimelinePage() {
   // ── Claim click in entity timeline → jump slider
   const handleClaimClick = useCallback((claimDate: Date) => {
     setSelectedDate(claimDate);
-    setDebouncedDateStr(claimDate.toISOString());
   }, []);
 
   // ── Drag handlers (pin/unpin via simulation ref) ──
@@ -178,8 +175,11 @@ export function TimelinePage() {
     return entityNames.filter((n) => n.toLowerCase().includes(q));
   }, [entityNames, entitySearch]);
 
-  // Stats from snapshot
-  const stats = snapshot?.stats ?? { claims: 0, superseded: 0 };
+  // Stats computed client-side
+  const stats = useMemo(() => ({
+    active_entities: activeEntityIds.size,
+    total_entities: allGraphEntities?.length ?? 0,
+  }), [activeEntityIds, allGraphEntities]);
 
   if (!timelineRange || !selectedDate) {
     return (
@@ -287,9 +287,8 @@ export function TimelinePage() {
             color: "rgb(var(--text-muted))",
           }}
         >
-          <span>Claims: {stats.claims}</span>
-          <span>Superseded: {stats.superseded}</span>
-          <span>Entities: {(snapshot?.active_nodes ?? []).length}</span>
+          <span>Active: {stats.active_entities}</span>
+          <span>Total: {stats.total_entities}</span>
         </div>
       </div>
 
