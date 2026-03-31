@@ -16,14 +16,8 @@ services:
     ports:
       - "${TENSORY_DASHBOARD_PORT:-7770}:7770"
     environment:
-      - TENSORY_DB_PATH=/data/tensory.db
+      - TENSORY_DB_PATH=/data/memory.db
     volumes:
-      # Default: named volume (works standalone)
-      - tensory-data:/data
-      # Override: mount your MCP database file directly
-      # Uncomment and adjust the path to share DB with tensory-mcp:
-      # - ~/.local/share/tensory:/data
+      # Mount host database directory so dashboard sees plugin data
+      - ~/.local/share/tensory:/data
     restart: unless-stopped
-
-volumes:
-  tensory-data:

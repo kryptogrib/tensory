@@ -46,7 +46,11 @@ def create_app(*, service: TensoryService | None = None) -> FastAPI:
             set_service(service)
             yield  # test mode — caller manages lifecycle
         else:
-            db_path = os.getenv("TENSORY_DB_PATH", "data/tensory.db")
+            db_path = os.getenv(
+                "TENSORY_DB_PATH",
+                os.getenv("TENSORY_DB", "data/tensory.db"),
+            )
+            db_path = os.path.expanduser(db_path)
             store = await Tensory.create(db_path)
             set_service(TensoryService(store))
             yield

@@ -19,7 +19,7 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.db:
-        os.environ["TENSORY_DB_PATH"] = args.db
+        os.environ["TENSORY_DB_PATH"] = os.path.expanduser(args.db)
 
     import uvicorn
 
