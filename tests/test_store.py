@@ -17,6 +17,32 @@ import pytest
 from tensory import Claim, ClaimType, Tensory
 from tensory.store import DECAY_RATES
 
+# ── Episode storage ──────────────────────────────────────────────────────
+
+
+async def test_save_episode_returns_id(store: Tensory) -> None:
+    """save_episode stores raw text and returns episode_id."""
+    episode_id = await store.save_episode("Hello world", source="test")
+    assert isinstance(episode_id, str)
+    assert len(episode_id) > 0
+
+    # Verify episode is in DB
+    async with store.db.execute(
+        "SELECT raw_text, source FROM episodes WHERE id = ?", (episode_id,)
+    ) as cursor:
+        row = await cursor.fetchone()
+    assert row is not None
+    assert row[0] == "Hello world"
+    assert row[1] == "test"
+
+
+async def test_save_episode_no_extraction(store: Tensory) -> None:
+    """save_episode does NOT trigger LLM extraction — no claims created."""
+    await store.save_episode("Some text that should not be extracted")
+    stats = await store.stats()
+    assert stats["counts"]["claims"] == 0
+
+
 # ── Claim ingestion ───────────────────────────────────────────────────────
 
 

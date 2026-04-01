@@ -28,6 +28,8 @@ from functools import lru_cache
 
 __all__ = [
     "MinHashDedup",
+    "shingle",
+    "jaccard",
     "_shannon_entropy",
     "_shingle",
     "_minhash",
@@ -91,6 +93,18 @@ def _jaccard(a: frozenset[str], b: frozenset[str]) -> float:
     if union == 0:
         return 1.0
     return len(a & b) / union
+
+
+# ── Public API (for extraction_gate and other modules) ───────────────
+
+def shingle(text: str, n: int = 3) -> frozenset[str]:
+    """Public wrapper for character n-gram shingling."""
+    return _shingle(text, n)
+
+
+def jaccard(a: frozenset[str], b: frozenset[str]) -> float:
+    """Public wrapper for Jaccard similarity."""
+    return _jaccard(a, b)
 
 
 def _word_jaccard(a: str, b: str) -> float:

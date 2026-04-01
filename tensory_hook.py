@@ -173,7 +173,8 @@ async def cmd_recall(cwd: str) -> None:
 async def cmd_save(transcript: str) -> None:
     """Extract claims from transcript and store them.
 
-    Uses Tensory's native pipeline: text → LLM extraction → claims + collisions.
+    Uses ExtractionGate to skip trivial/duplicate transcripts.
+    Pipeline: save episode (always) → gate check → LLM extraction (if passes).
     Falls back to raw claim storage if LLM is unavailable.
     """
     import time
@@ -192,21 +193,47 @@ async def cmd_save(transcript: str) -> None:
         if len(transcript) > max_chars:
             transcript = transcript[-max_chars:]
 
+        # Always save episode (Layer 0 — raw never lost)
+        episode_id = await store.save_episode(transcript, source="claude-code:hook")
+
         if store._llm is not None:
-            # Full pipeline: LLM extraction → claims + collision detection
-            result = await store.add(transcript, source="claude-code:hook")
-            elapsed_ms = (time.monotonic() - start) * 1000
+            # Check extraction gate before expensive LLM call
+            from tensory.extraction_gate import ExtractionGate
 
-            if DEBUG:
-                _format_debug_save(result, elapsed_ms)
+            session_id = os.environ.get("CLAUDE_SESSION_ID", "unknown")
+            cwd = os.environ.get("CWD", os.getcwd())
 
-            logger.info(
-                "Saved %d claims, %d collisions",
-                len(result.claims),
-                len(result.collisions),
-            )
+            gate = ExtractionGate(store.db)
+            await gate.ensure_table()
+
+            if await gate.should_extract(session_id, transcript, cwd):
+                # Full pipeline: LLM extraction → claims + collision detection
+                result = await store.add(
+                    transcript,
+                    source="claude-code:hook",
+                    episode_id=episode_id,
+                )
+                await gate.record_extraction(session_id, transcript, cwd)
+                elapsed_ms = (time.monotonic() - start) * 1000
+
+                if DEBUG:
+                    _format_debug_save(result, elapsed_ms)
+
+                logger.info(
+                    "Saved %d claims, %d collisions",
+                    len(result.claims),
+                    len(result.collisions),
+                )
+            else:
+                elapsed_ms = (time.monotonic() - start) * 1000
+                if DEBUG:
+                    _debug_stderr(
+                        f"save: gate skipped extraction, episode {episode_id} saved "
+                        f"time={elapsed_ms:.0f}ms"
+                    )
+                logger.info("Gate skipped extraction, episode saved")
         else:
-            # No LLM — store as a single raw episode (still searchable via FTS)
+            # No LLM — episode already saved above, add a raw claim for FTS
             from tensory import Claim
 
             await store.add_claims(

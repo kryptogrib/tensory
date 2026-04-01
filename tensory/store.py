@@ -932,32 +932,17 @@ class Tensory:
 
     # ── add() — raw text → extract → ingest (Phase 4) ────────────────────
 
-    async def add(
+    async def save_episode(
         self,
         text: str,
-        *,
         source: str = "",
         source_url: str | None = None,
-        context: Context | None = None,
-        chunk_threshold: int | None = None,
-    ) -> IngestResult:
-        """Ingest raw text: store episode → LLM extract → add_claims.
+    ) -> str:
+        """Save raw text as episode without LLM extraction.
 
-        This is the primary high-level API. Requires an LLM to be configured.
-
-        Args:
-            text: Raw text to extract claims from.
-            source: Source identifier (e.g. "reddit:r/defi").
-            source_url: Full URL of the source.
-            context: Research goal for context-aware extraction.
-            chunk_threshold: Token count above which long-text segmentation is
-                used. Defaults to 3000. Pass a large number to disable.
+        Layer 0 — raw text is immutable and never deleted.
+        Returns the episode_id.
         """
-        if not self._llm:
-            msg = "LLM required for add(). Use add_claims() for pre-extracted claims."
-            raise ValueError(msg)
-
-        # Store episode (Layer 0 — raw never dies)
         episode = Episode(
             id=uuid.uuid4().hex,
             raw_text=text,
@@ -976,6 +961,39 @@ class Tensory:
             ),
         )
         await self._db.commit()
+        return episode.id
+
+    async def add(
+        self,
+        text: str,
+        *,
+        source: str = "",
+        source_url: str | None = None,
+        context: Context | None = None,
+        chunk_threshold: int | None = None,
+        episode_id: str | None = None,
+    ) -> IngestResult:
+        """Ingest raw text: store episode → LLM extract → add_claims.
+
+        This is the primary high-level API. Requires an LLM to be configured.
+
+        Args:
+            text: Raw text to extract claims from.
+            source: Source identifier (e.g. "reddit:r/defi").
+            source_url: Full URL of the source.
+            context: Research goal for context-aware extraction.
+            chunk_threshold: Token count above which long-text segmentation is
+                used. Defaults to 3000. Pass a large number to disable.
+            episode_id: Reuse an existing episode instead of creating a new one.
+                Pass this when the episode was already saved via save_episode().
+        """
+        if not self._llm:
+            msg = "LLM required for add(). Use add_claims() for pre-extracted claims."
+            raise ValueError(msg)
+
+        # Store episode (Layer 0 — raw never dies), or reuse existing
+        if episode_id is None:
+            episode_id = await self.save_episode(text, source, source_url)
 
         # Threshold dispatch: short text → 1 call, long text → segmentation
         from tensory.chunking import compute_max_segments, estimate_tokens
@@ -1005,7 +1023,7 @@ class Tensory:
                 rel.rel_type,
                 {
                     "fact": rel.fact,
-                    "episode_id": episode.id,
+                    "episode_id": episode_id,
                     "confidence": rel.confidence,
                 },
             )
@@ -1013,7 +1031,7 @@ class Tensory:
         # Ingest claims through the standard pipeline
         result = await self.add_claims(
             claims,
-            episode_id=episode.id,
+            episode_id=episode_id,
             context_id=context.id if context else None,
         )
 
@@ -1050,45 +1068,28 @@ class Tensory:
 
         from tensory.extract import extract_procedural
 
-        # Store episode (Layer 0)
-        episode = Episode(
-            id=uuid.uuid4().hex,
-            raw_text=text,
-            source=source,
-            source_url=source_url,
-        )
-        await self._db.execute(
-            """INSERT INTO episodes (id, raw_text, source, source_url, fetched_at)
-               VALUES (?, ?, ?, ?, ?)""",
-            (
-                episode.id,
-                episode.raw_text,
-                episode.source,
-                episode.source_url,
-                episode.fetched_at.isoformat(),
-            ),
-        )
-        await self._db.commit()
+        # Store episode (Layer 0 — raw never dies)
+        episode_id = await self.save_episode(text, source, source_url)
 
         # Extract procedural skills via LLM
         skills = await extract_procedural(text, self._llm)
 
         # Set provenance on each skill
         for skill in skills:
-            skill.source_episode_ids = [episode.id]
+            skill.source_episode_ids = [episode_id]
 
         # Store through standard pipeline (dedup + embed + collisions)
         stored_skills: list[Claim] = []
         if skills:
             result = await self.add_claims(
                 skills,
-                episode_id=episode.id,
+                episode_id=episode_id,
                 context_id=context.id if context else None,
             )
             stored_skills = result.claims
 
         return ProceduralResult(
-            episode_id=episode.id,
+            episode_id=episode_id,
             skills=stored_skills,
         )
 
