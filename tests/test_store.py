@@ -142,6 +142,42 @@ async def test_create_context(store: Tensory) -> None:
     assert stats["counts"]["contexts"] == 1
 
 
+async def test_get_or_create_context_creates_new(store: Tensory) -> None:
+    """get_or_create_context creates a new context if none exists."""
+    ctx = await store.get_or_create_context(
+        goal="Track DeFi movements", domain="crypto",
+    )
+    assert ctx.id
+    assert ctx.goal == "Track DeFi movements"
+
+    stats = await store.stats()
+    assert stats["counts"]["contexts"] == 1
+
+
+async def test_get_or_create_context_reuses_existing(store: Tensory) -> None:
+    """get_or_create_context returns existing context on second call."""
+    ctx1 = await store.get_or_create_context(
+        goal="Track DeFi movements", domain="crypto",
+    )
+    ctx2 = await store.get_or_create_context(
+        goal="Track DeFi movements", domain="crypto",
+    )
+    assert ctx1.id == ctx2.id
+
+    stats = await store.stats()
+    assert stats["counts"]["contexts"] == 1  # still only 1
+
+
+async def test_get_or_create_context_different_domains(store: Tensory) -> None:
+    """Different domain creates a separate context even with same goal."""
+    ctx1 = await store.get_or_create_context(goal="Track things", domain="crypto")
+    ctx2 = await store.get_or_create_context(goal="Track things", domain="tech")
+    assert ctx1.id != ctx2.id
+
+    stats = await store.stats()
+    assert stats["counts"]["contexts"] == 2
+
+
 # ── Salience defaults ────────────────────────────────────────────────────
 
 

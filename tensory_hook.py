@@ -122,6 +122,16 @@ async def _create_store() -> Any:
     return await Tensory.create(db_path, llm=_make_llm(), embedder=_make_embedder())
 
 
+# ── Default context for coding agents ─────────────────────────────────────
+
+CODING_AGENT_GOAL = (
+    "Remember important decisions, user preferences, error patterns, solutions, "
+    "project conventions, and workflow insights that will be useful in future "
+    "coding sessions on this project."
+)
+CODING_AGENT_DOMAIN = "software-development"
+
+
 # ── Subcommands ──────────────────────────────────────────────────────────
 
 
@@ -135,9 +145,10 @@ async def cmd_recall(cwd: str) -> None:
     start = time.monotonic()
     store = await _create_store()
     try:
-        # Build a query from the project directory name
+        # Build a richer query from the project directory
         project_name = os.path.basename(cwd) if cwd else "project"
-        results = await store.search(project_name, limit=10)
+        query = f"{project_name} coding decisions patterns preferences"
+        results = await store.search(query, limit=10)
         elapsed_ms = (time.monotonic() - start) * 1000
 
         if not results:
@@ -207,11 +218,17 @@ async def cmd_save(transcript: str) -> None:
             await gate.ensure_table()
 
             if await gate.should_extract(session_id, transcript, cwd):
+                # Get or create project-scoped context for focused extraction
+                context = await store.get_or_create_context(
+                    goal=CODING_AGENT_GOAL,
+                    domain=CODING_AGENT_DOMAIN,
+                )
                 # Full pipeline: LLM extraction → claims + collision detection
                 result = await store.add(
                     transcript,
                     source="claude-code:hook",
                     episode_id=episode_id,
+                    context=context,
                 )
                 await gate.record_extraction(session_id, transcript, cwd)
                 elapsed_ms = (time.monotonic() - start) * 1000

@@ -268,6 +268,41 @@ class Tensory:
         await self._db.commit()
         return ctx
 
+    async def get_or_create_context(
+        self,
+        goal: str,
+        *,
+        domain: str = "general",
+        description: str = "",
+        user_id: str | None = None,
+    ) -> Context:
+        """Get existing context by goal+domain, or create if not found.
+
+        Useful for agents that always use the same research goal per project.
+        Avoids creating duplicate contexts across sessions.
+        """
+        async with self._db.execute(
+            "SELECT id, goal, description, domain, user_id, active, created_at "
+            "FROM contexts WHERE goal = ? AND domain = ? AND active = 1 LIMIT 1",
+            (goal, domain),
+        ) as cursor:
+            row = await cursor.fetchone()
+
+        if row is not None:
+            return Context(
+                id=row[0],
+                goal=row[1],
+                description=row[2],
+                domain=row[3],
+                user_id=row[4],
+                active=bool(row[5]),
+                created_at=datetime.fromisoformat(row[6]),
+            )
+
+        return await self.create_context(
+            goal, domain=domain, description=description, user_id=user_id,
+        )
+
     # ── Claim ingestion (Layer 1) ─────────────────────────────────────────
 
     async def add_claims(
