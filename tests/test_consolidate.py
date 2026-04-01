@@ -4,10 +4,9 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-import aiosqlite
 import pytest
 
-from tensory import Claim, ClaimType, Tensory
+from tensory import Claim, Tensory
 from tensory.consolidate import ConsolidationResult, consolidate
 
 
