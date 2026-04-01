@@ -25,6 +25,12 @@ weeks or months from now by someone with no memory of this conversation.
 The test for every claim: "Would recalling this change how I think or act on this research goal?"
 Write each claim to be SELF-CONTAINED — understandable without the original text.
 
+VERBATIM PRESERVATION — NEVER paraphrase proper nouns, specific objects, locations, or quantities. \
+Use the speaker's EXACT words for names, numbers, colors, and specific objects. \
+If the text says "Sweden", write "Sweden" — NOT "home country". \
+If the text says "sunset", write "sunset" — NOT "nature-inspired". \
+When in doubt, QUOTE the original words rather than summarize.
+
 For each claim, rate its relevance to the research goal (0.0-1.0).
 
 TEXT:
@@ -63,6 +69,13 @@ The test for every claim: "Would recalling this change how I think or act?"
 - NO → skip it. Narration, status updates, counts, process logs, things obvious from context.
 
 Write each claim to be SELF-CONTAINED — understandable without the original text.
+
+VERBATIM PRESERVATION — NEVER paraphrase proper nouns, specific objects, locations, or quantities. \
+Use the speaker's EXACT words for names, numbers, colors, and specific objects. \
+If the text says "Sweden", write "Sweden" — NOT "home country". \
+If the text says "sunset", write "sunset" — NOT "nature-inspired". \
+When in doubt, QUOTE the original words rather than summarize.
+
 Bad:  "The issue was fixed by changing line 240"
 Good: "sqlite-vec returns L2 distance by default, not cosine — schema must set distance_metric=cosine explicitly"
 

@@ -29,3 +29,5 @@ tensory/_version.py
 ui/out/
 ui/.next/
 ui/public/*.mp3
+/docs/superpowers
+docs/documentation-guide.md
