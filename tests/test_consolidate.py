@@ -33,10 +33,12 @@ async def test_consolidate_empty_store(store: Tensory) -> None:
 
 async def test_consolidate_with_claims(store: Tensory) -> None:
     """Consolidation processes claims without errors."""
-    await store.add_claims([
-        Claim(text="Python uses indentation for blocks", entities=["Python"]),
-        Claim(text="Rust has no garbage collector", entities=["Rust"]),
-    ])
+    await store.add_claims(
+        [
+            Claim(text="Python uses indentation for blocks", entities=["Python"]),
+            Claim(text="Rust has no garbage collector", entities=["Rust"]),
+        ]
+    )
     result = await consolidate(store.db)
     assert result.errors == []
 
@@ -46,9 +48,11 @@ async def test_consolidate_with_claims(store: Tensory) -> None:
 
 async def test_decay_reduces_salience(store: Tensory) -> None:
     """Claims with old access times get decayed."""
-    await store.add_claims([
-        Claim(text="Old fact about something", entities=["Something"]),
-    ])
+    await store.add_claims(
+        [
+            Claim(text="Old fact about something", entities=["Something"]),
+        ]
+    )
     # Backdate the claim's created_at and last_accessed
     old_date = (datetime.now(UTC) - timedelta(days=30)).isoformat()
     await store.db.execute(
@@ -67,9 +71,11 @@ async def test_decay_reduces_salience(store: Tensory) -> None:
 async def test_dedup_finds_near_duplicates(store: Tensory) -> None:
     """Near-duplicate claims across separate ingestions get superseded."""
     # Ingest same claim twice (simulating two sessions)
-    await store.add_claims([
-        Claim(text="The project uses pytest for testing with asyncio", entities=["pytest"]),
-    ])
+    await store.add_claims(
+        [
+            Claim(text="The project uses pytest for testing with asyncio", entities=["pytest"]),
+        ]
+    )
     # Bypass dedup by adding directly (different ingestion batch)
     await store.db.execute(
         """INSERT INTO claims (id, text, type, memory_type, confidence, relevance,
@@ -95,10 +101,12 @@ async def test_dedup_finds_near_duplicates(store: Tensory) -> None:
 
 async def test_dedup_ignores_different_claims(store: Tensory) -> None:
     """Distinct claims are not marked as duplicates."""
-    await store.add_claims([
-        Claim(text="Python uses indentation for blocks", entities=["Python"]),
-        Claim(text="Rust has zero-cost abstractions", entities=["Rust"]),
-    ])
+    await store.add_claims(
+        [
+            Claim(text="Python uses indentation for blocks", entities=["Python"]),
+            Claim(text="Rust has zero-cost abstractions", entities=["Rust"]),
+        ]
+    )
     result = await consolidate(store.db)
     assert result.dedup_superseded == 0
 
@@ -108,9 +116,11 @@ async def test_dedup_ignores_different_claims(store: Tensory) -> None:
 
 async def test_cleanup_removes_dead_claims(store: Tensory) -> None:
     """Superseded claims with low salience and old age get cleaned up."""
-    await store.add_claims([
-        Claim(text="Old superseded claim that should be cleaned", entities=["Old"]),
-    ])
+    await store.add_claims(
+        [
+            Claim(text="Old superseded claim that should be cleaned", entities=["Old"]),
+        ]
+    )
     # Mark as superseded, low salience, old
     old_date = (datetime.now(UTC) - timedelta(days=100)).isoformat()
     await store.db.execute(

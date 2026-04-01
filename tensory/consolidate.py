@@ -94,7 +94,9 @@ async def consolidate(
     # Step 3: Cleanup
     try:
         result.cleaned_up = await cleanup(
-            db, max_age_days=max_age_days, min_salience=min_salience,
+            db,
+            max_age_days=max_age_days,
+            min_salience=min_salience,
         )
         logger.info("Cleanup: removed %d claims", result.cleaned_up)
     except Exception as e:
@@ -159,7 +161,11 @@ async def _retrospective_dedup(
                 pairs_found += 1
                 # Supersede the older claim (newer wins)
                 did_supersede = await auto_supersede_on_collision(
-                    new_id, old_id, sim, db, threshold=threshold,
+                    new_id,
+                    old_id,
+                    sim,
+                    db,
+                    threshold=threshold,
                 )
                 if did_supersede:
                     superseded += 1

@@ -95,21 +95,23 @@ def test_memory_type_mapping_from_claim_type() -> None:
 
 def test_experience_claim_gets_episodic_memory_type() -> None:
     """Experience claims should be classified as episodic memory."""
-    response = json.dumps({
-        "claims": [
-            {"text": "On 20 May 2023, John ran a marathon", "type": "experience"},
-            {"text": "John is a runner", "type": "fact"},
-            {"text": "John seems dedicated", "type": "observation"},
-            {"text": "Running is beneficial", "type": "opinion"},
-        ],
-        "relations": [],
-    })
+    response = json.dumps(
+        {
+            "claims": [
+                {"text": "On 20 May 2023, John ran a marathon", "type": "experience"},
+                {"text": "John is a runner", "type": "fact"},
+                {"text": "John seems dedicated", "type": "observation"},
+                {"text": "Running is beneficial", "type": "opinion"},
+            ],
+            "relations": [],
+        }
+    )
     claims, _ = _parse_extraction(response)
     assert len(claims) == 4
     assert claims[0].memory_type == MemoryType.EPISODIC  # experience
-    assert claims[1].memory_type == MemoryType.SEMANTIC   # fact
-    assert claims[2].memory_type == MemoryType.SEMANTIC   # observation
-    assert claims[3].memory_type == MemoryType.SEMANTIC   # opinion
+    assert claims[1].memory_type == MemoryType.SEMANTIC  # fact
+    assert claims[2].memory_type == MemoryType.SEMANTIC  # observation
+    assert claims[3].memory_type == MemoryType.SEMANTIC  # opinion
 
 
 def test_parse_missing_fields() -> None:

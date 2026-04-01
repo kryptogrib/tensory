@@ -337,9 +337,7 @@ def test_memory_type_boost_promotes_matching_claims() -> None:
     episodic_claim = Claim(
         id="ep1", text="Event happened on May 2023", memory_type=MemoryType.EPISODIC
     )
-    semantic_claim = Claim(
-        id="sem1", text="Alice is an engineer", memory_type=MemoryType.SEMANTIC
-    )
+    semantic_claim = Claim(id="sem1", text="Alice is an engineer", memory_type=MemoryType.SEMANTIC)
 
     results = [
         SearchResult(claim=semantic_claim, score=0.5, method="hybrid"),

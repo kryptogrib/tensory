@@ -145,7 +145,8 @@ async def test_create_context(store: Tensory) -> None:
 async def test_get_or_create_context_creates_new(store: Tensory) -> None:
     """get_or_create_context creates a new context if none exists."""
     ctx = await store.get_or_create_context(
-        goal="Track DeFi movements", domain="crypto",
+        goal="Track DeFi movements",
+        domain="crypto",
     )
     assert ctx.id
     assert ctx.goal == "Track DeFi movements"
@@ -157,10 +158,12 @@ async def test_get_or_create_context_creates_new(store: Tensory) -> None:
 async def test_get_or_create_context_reuses_existing(store: Tensory) -> None:
     """get_or_create_context returns existing context on second call."""
     ctx1 = await store.get_or_create_context(
-        goal="Track DeFi movements", domain="crypto",
+        goal="Track DeFi movements",
+        domain="crypto",
     )
     ctx2 = await store.get_or_create_context(
-        goal="Track DeFi movements", domain="crypto",
+        goal="Track DeFi movements",
+        domain="crypto",
     )
     assert ctx1.id == ctx2.id
 

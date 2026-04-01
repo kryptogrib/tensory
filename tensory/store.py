@@ -300,7 +300,10 @@ class Tensory:
             )
 
         return await self.create_context(
-            goal, domain=domain, description=description, user_id=user_id,
+            goal,
+            domain=domain,
+            description=description,
+            user_id=user_id,
         )
 
     # ── Claim ingestion (Layer 1) ─────────────────────────────────────────

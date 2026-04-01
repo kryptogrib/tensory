@@ -94,13 +94,9 @@ async def hybrid_search(
     # NOTE: memory_type is NOT passed to channels — it's a post-RRF boost,
     # not a SQL WHERE filter. This prevents zero-result failures when
     # claims exist but are tagged with a different memory_type.
-    fts_task = fts_search(
-        query, db, context_id=context_id, limit=internal_limit
-    )
+    fts_task = fts_search(query, db, context_id=context_id, limit=internal_limit)
     vec_task = (
-        vector_search(
-            embedding, db, context_id=context_id, limit=internal_limit
-        )
+        vector_search(embedding, db, context_id=context_id, limit=internal_limit)
         if embedding
         else _empty_results()
     )
@@ -485,8 +481,7 @@ def _apply_entity_relevance_boost(
     """
     # Extract likely entity names: capitalized words ≥ 3 chars
     query_entities = [
-        w for w in query.split()
-        if len(w) >= 3 and w[0].isupper() and w.lower() not in _STOPWORDS
+        w for w in query.split() if len(w) >= 3 and w[0].isupper() and w.lower() not in _STOPWORDS
     ]
 
     if not query_entities:
@@ -517,12 +512,45 @@ def _apply_entity_relevance_boost(
 
 
 # Common words that look capitalized at sentence start but aren't entities
-_STOPWORDS = frozenset({
-    "what", "when", "where", "who", "why", "how", "which", "does", "did",
-    "has", "had", "was", "were", "are", "the", "and", "for", "that", "this",
-    "with", "from", "would", "could", "should", "might", "about", "after",
-    "before", "around", "been", "being", "have", "not", "his", "her",
-})
+_STOPWORDS = frozenset(
+    {
+        "what",
+        "when",
+        "where",
+        "who",
+        "why",
+        "how",
+        "which",
+        "does",
+        "did",
+        "has",
+        "had",
+        "was",
+        "were",
+        "are",
+        "the",
+        "and",
+        "for",
+        "that",
+        "this",
+        "with",
+        "from",
+        "would",
+        "could",
+        "should",
+        "might",
+        "about",
+        "after",
+        "before",
+        "around",
+        "been",
+        "being",
+        "have",
+        "not",
+        "his",
+        "her",
+    }
+)
 
 
 # ── RRF merge ─────────────────────────────────────────────────────────────

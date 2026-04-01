@@ -97,6 +97,7 @@ def _jaccard(a: frozenset[str], b: frozenset[str]) -> float:
 
 # ── Public API (for extraction_gate and other modules) ───────────────
 
+
 def shingle(text: str, n: int = 3) -> frozenset[str]:
     """Public wrapper for character n-gram shingling."""
     return _shingle(text, n)
