@@ -2,7 +2,7 @@
 
 **Context-aware memory for AI agents. One file. Built-in collision detection.**
 
-> I evaluated every open-source memory library — Mem0, Graphiti/Zep, Cognee, Letta — and none fit what I needed: a **single-file**, **claim-native** memory with built-in contradiction detection, temporal reasoning, and zero infrastructure. So I built Tensory.
+> I evaluated every open-source memory library — Mem0, Graphiti/Zep, Cognee, Letta — and none fit what I needed: a **single-file**, **claim-native** memory with built-in contradiction detection, temporal reasoning, and zero infrastructure. So I built tensory.
 
 ```bash
 pip install tensory
@@ -44,9 +44,7 @@ On install, Claude Code will ask for your API keys. That's it — memory is acti
 | Hook | When | What happens |
 |------|------|-------------|
 | `SessionStart` | Session opens | Searches memory for project context → injects into Claude's context window |
-| `Stop` | Claude finishes responding | Extracts durable claims from conversation → stores with collision detection |
-
-Set `TENSORY_DEBUG=1` in your `.env` to see what's recalled and saved each session.
+| `Stop` | Claude finishes responding | Extracts claims from conversation → stores with collision detection |
 
 ### 2. Dashboard — see your agent's memory
 
@@ -59,14 +57,11 @@ Or via Docker:
 ```bash
 docker run -d -p 7770:7770 --name tensory-dashboard \
   -v ~/.local/share/tensory:/data \
-  -e TENSORY_DB_PATH=/data/memory.db \
   --restart unless-stopped \
-  ghcr.io/kryptogrib/tensory:latest
+  ghcr.io/kryptogrib/tensory
 ```
 
 Open **http://localhost:7770** — entity graph explorer, claims browser, memory stats.
-
-> **Note:** The `-e TENSORY_DB_PATH=/data/memory.db` must match the actual filename in your `~/.local/share/tensory/` directory. The plugin defaults to `memory.db`.
 
 ### 3. As a Python library
 
@@ -133,11 +128,10 @@ results = await store.search("EigenLayer")
 
 ## What is tensory?
 
-An embedded, claim-native memory library for AI agents. Instead of storing raw text chunks, Tensory extracts **atomic claims** — verifiable statements with entities, confidence, and temporal validity.
+An embedded, claim-native memory library for AI agents. Instead of storing raw text chunks, tensory extracts **atomic claims** — verifiable statements with entities, confidence, and temporal validity.
 
 - **One file** — single SQLite database, no Docker, no Neo4j required
 - **Context-aware extraction** — same text yields different claims depending on *why* you're reading it
-- **Durability-filtered** — only stores claims that change how you think or act; ephemeral noise (test counts, status updates) is automatically dropped
 - **Built-in collision detection** — automatically finds contradictions and superseding facts
 - **Cognitive mechanisms** — salience decay, surprise scoring, priming, all without LLM calls
 - **MMR-diversified search** — hybrid retrieval with entity crowding prevention
@@ -335,25 +329,34 @@ cp .env.example .env
 | `ANTHROPIC_API_KEY` | LLM extraction via Anthropic/proxy | Only if using Anthropic |
 | `ANTHROPIC_BASE_URL` | Proxy URL (CLIProxyAPI etc.) | Optional |
 | `TENSORY_MODEL` | Model for extraction | Default: claude-haiku-4-5-20251001 |
-| `TENSORY_DB` | Database path | Default: `~/.local/share/tensory/memory.db` |
-| `TENSORY_DEBUG` | Set to `1` for visible recall/save debug output | Optional |
 
 ## Benchmarks
 
-Testing on [LoCoMo](https://arxiv.org/abs/2401.17753) (Long-term Conversational Memory, ACL 2024) via [Open Memory Benchmark](https://github.com/vectorize-io/agent-memory-benchmark):
+Tested on [LoCoMo](https://arxiv.org/abs/2401.17753) (Long-term Conversational Memory, ACL 2024) via [Open Memory Benchmark](https://github.com/vectorize-io/agent-memory-benchmark):
 
 | Memory System | Accuracy | Queries | Notes |
 |---|:---:|:---:|---|
 | **Hindsight** (cloud) | 92.0% | 1,540 | Closed-source |
+| **Tensory** | **82.2%** | 152 | Open-source, single-file SQLite |
 | **Cognee** | 80.3% | 152 | Partial evaluation |
 | **Hybrid Search** (Qdrant) | 79.1% | 1,540 | Vector-only baseline |
-| **Tensory** | *testing* | 1,540 | Full evaluation in progress |
 
-Tensory extraction cost per conversation: **~$0.12** (Haiku extraction + OpenAI embeddings). Full benchmark is running — results will be published here.
+Per-category breakdown:
+
+| Category | Accuracy | What it tests |
+|---|:---:|---|
+| Temporal | **92.1%** | "When did X happen?" — date reasoning |
+| Open-domain | **92.1%** | "Would X do Y?" — inference from facts |
+| Single-hop | **78.9%** | "What did X do?" — direct fact retrieval |
+| Multi-hop | **65.8%** | "What can you infer from X + Y?" — chained reasoning |
+
+Extraction cost: **~$0.08/conversation** (Haiku + embeddings). Full 152-query benchmark: **$3.77 total**.
+
+> **Details:** [docs/benchmark-results.md](docs/benchmark-results.md) — full breakdown, tuning history, failure analysis.
 
 ## Status
 
-**Active development.** 322+ tests, pyright strict, ruff clean, CI on every push.
+**Active development.** 330+ tests, pyright strict, ruff clean, CI on every push.
 
 The vision: become the **best open-source memory for AI agents** — a single-file SQLite database that gives your agent real long-term memory with contradiction detection, temporal reasoning, and cognitive mechanisms that work without LLM calls.
 
@@ -363,27 +366,25 @@ The vision: become the **best open-source memory for AI agents** — a single-fi
 - Hybrid search with MMR diversity (FTS5 + vector + graph → RRF → MMR)
 - Two-level collision detection (structural + semantic)
 - Context-aware extraction (same text, different lens → different claims)
-- Durability-based claim filtering (ephemeral noise auto-dropped)
 - Topic segmentation for long texts (parallel extraction)
 - MCP server for tool-use integration
-- Claude Code plugin with automatic memory hooks
 - Smart context formatting (entity grouping, temporal annotations, memory-type routing)
-- Web dashboard (graph explorer, claims browser, stats) + Docker image
-- Debug mode (`TENSORY_DEBUG=1`) for observable recall/save
+- Web dashboard (graph explorer, claims browser, stats)
 - LoCoMo benchmark integration (AMB provider with exact cost tracking)
 
 ### What's next
 
-- Full benchmark results on LoCoMo (1,540 questions, 10 conversations)
-- Per-prompt contextual recall (UserPromptSubmit hook)
+- Full LoCoMo evaluation (1,540 questions) for definitive comparison
+- Multi-hop graph traversal — chain facts across entity relationships
 - Cross-encoder reranking for retrieval precision
-- Research agent built on Tensory as a reference application
+- Session-aware diversification (SSD) for sequential agent queries
+- Research agent built on tensory as a reference application
 
 ## Development
 
 ```bash
 uv sync --all-extras                    # Install all deps
-uv run pytest tests/                    # Run all tests (~322)
+uv run pytest tests/                    # Run all tests (~275)
 uv run pytest tests/test_store.py::test_name   # Single test
 uv run pyright tensory/                 # Type check (strict mode)
 uv run ruff check tensory/ tests/       # Lint

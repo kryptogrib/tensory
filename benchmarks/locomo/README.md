@@ -62,14 +62,23 @@ Recommended: `google/gemini-2.5-flash-lite` via openrouter (same as competitors)
 - Accuracy table in terminal
 - Cost summary from Tensory provider
 
-#### Competitor Results (from AMB manifest)
+#### Results (AMB, April 2025)
 
 | Memory System | Answer LLM | Accuracy | Queries |
 |---|---|:---:|:---:|
-| **Hindsight** | Gemini 3.1 Pro | 92.0% | 1540 |
-| **Cognee** | Gemini 3.1 Pro | 80.3% | 152 |
-| **Hybrid Search** (Qdrant) | Gemini 3.1 Pro | 79.1% | 1540 |
-| **Tensory** | Groq gpt-oss-120b | **88-92%** | 25 |
+| **Hindsight** | Gemini Pro | 92.0% | 1540 |
+| **Tensory** | Sonnet 4 | **82.2%** | 152 |
+| **Cognee** | Gemini Pro | 80.3% | 152 |
+| **Hybrid Search** (Qdrant) | Gemini Pro | 79.1% | 1540 |
+
+Per-category (Tensory, 152 queries):
+
+| Category | Accuracy |
+|---|:---:|
+| Temporal | 92.1% |
+| Open-domain | 92.1% |
+| Single-hop | 78.9% |
+| Multi-hop | 65.8% |
 
 ---
 
@@ -117,7 +126,7 @@ uv run python -m benchmarks.locomo --conversation 0 --offset 5 --limit 5 --skip-
 
 #### Metric
 
-Token-level F1 (stricter than LLM-judge in AMB). Our result: **F1 ~0.52** on 10 questions.
+Token-level F1 (stricter than LLM-judge in AMB). Useful for fast iteration on extraction/search quality.
 
 ---
 
@@ -152,8 +161,118 @@ AMB Judge LLM evaluates CORRECT/WRONG
 
 **Known limitations:**
 - Entity crowding: popular entities (Caroline+counseling) flood out rare facts
-- No per-entity diversity caps (planned for search.py core)
 - Extraction non-deterministic: accuracy fluctuates 88-92% between runs
+
+---
+
+## Search Pipeline Optimizations (April 2025)
+
+### Problem: Multi-hop F1 = 0.00
+
+Root cause: `classify_query("When did X?")` returned `MemoryType.EPISODIC`, but all 306 claims were stored as `semantic` (extraction never sets memory_type). Hard SQL filter `WHERE memory_type = 'episodic'` returned 0 results for every temporal question.
+
+### Fix 1: Soft Boost Instead of Hard Filter
+
+**File:** `tensory/search.py`
+
+Removed `memory_type` from SQL WHERE clauses in all 3 search channels (FTS, vector, graph). Instead, `memory_type` is now a post-RRF score boost (1.3x) for matching claims. All claims are always retrieved; matching ones rank higher.
+
+`search_procedural()` retains a hard post-filter (guarantees PROCEDURAL-only results).
+
+**Result:** Multi-hop 0.00 → 0.31
+
+### Fix 2: Temporal Boost
+
+**File:** `tensory/search.py` — `_apply_temporal_boost()`
+
+When query is temporal ("When did X?"), claims with explicit dates in text (e.g. "On 5 August 2023, ...") get 1.25x score boost. Date detection via regex on claim text.
+
+**Result:** Multi-hop 0.31 → 0.39 (Q7 "5K charity run" fixed: 0.05 → 0.50)
+
+### Fix 3: Entity Relevance Boost
+
+**File:** `tensory/search.py` — `_apply_entity_relevance_boost()`
+
+Claims mentioning capitalized words from the query (likely entity names) get 1.15x boost. Addresses entity confusion (e.g. "What did Maria do?" now promotes Maria claims over John claims).
+
+### Category Runner
+
+**File:** `benchmarks/locomo/run_categories.py`
+
+New benchmark runner that selects N QA items per category (single-hop, multi-hop, temporal, open-domain, adversarial) from specified conversations. Ensures balanced category coverage.
+
+```bash
+# 5 questions per category from conversation 2
+uv run python benchmarks/locomo/run_categories.py --conversations 2 --per-category 5 -v
+
+# 10 per category from conversations 0, 2, 5
+uv run python benchmarks/locomo/run_categories.py --conversations 0 2 5 --per-category 10 -v
+```
+
+### Benchmark Results
+
+#### AMB LLM-judge (152 queries, April 2025)
+
+Models: Haiku 4.5 (extraction), Sonnet 4 (answer + judge), text-embedding-3-small (embeddings).
+
+| Category | Accuracy | Queries |
+|---|:---:|:---:|
+| Temporal | **92.1%** | 38 |
+| Open-domain | **92.1%** | 38 |
+| Single-hop | 78.9% | 38 |
+| Multi-hop | 65.8% | 38 |
+| **Overall** | **82.2%** | **152** |
+
+#### Custom runner F1 (Conv 2 / conv-41, 5 per category)
+
+| Category | Before (hard filter) | After (soft boost + temporal + entity) |
+|---|:---:|:---:|
+| single-hop | 0.636 | 0.551 |
+| **multi-hop** | **0.000** | **0.389** |
+| temporal | 0.409 | 0.300 |
+| open-domain | 0.614 | 0.474 |
+| adversarial | 0.824 | 0.616 |
+| **OVERALL** | **0.497** | **0.466** |
+
+Note: F1 is stricter than LLM-judge accuracy. Score variance ~±0.1 due to extraction non-determinism.
+
+### Failure Analysis
+
+| Failure type | Count | Fixable in search? |
+|---|:---:|:---:|
+| Answer LLM errors (wrong inference, over-answer) | 4 | No |
+| Retrieval miss (claim exists but not in top-10) | 2 | Partially |
+| Wrong fact retrieved (Coco vs Shadow) | 1 | Temporal ordering needed |
+| Extraction miss (fact not extracted from text) | 1 | No |
+| Format mismatch ("Not specified" vs "unanswerable") | 1 | No |
+
+### Fix 4: Deterministic ClaimType → MemoryType Mapping
+
+**File:** `tensory/extract.py` — `CLAIM_TO_MEMORY_TYPE`
+
+All claims previously defaulted to `memory_type=semantic` because the extraction prompt never asked for it. Added deterministic mapping:
+- `experience` → `episodic` (events with time/place context)
+- `fact/observation/opinion` → `semantic` (stable knowledge)
+
+This activates the 1.3x memory-type boost for temporal queries (which route to episodic) and makes ~37% of claims episodic.
+
+**Result:** 85% → 90% on 20-query test.
+
+### Fix 5: Expanded Temporal Detection
+
+**File:** `tensory/search.py`
+
+- Temporal query regex now matches seasonal references: "for the summer", "last winter", "this fall"
+- Date-in-text regex now detects month+year patterns: "July 2023", "During March 2024"
+
+Note: "planning to/for" was tested but reverted — too many false positives on non-temporal queries.
+
+### Future Improvements
+
+1. **Multi-hop graph traversal** — chain entities from query through graph paths, collect claims along path. Uses existing `find_path()` in graph.py. This is the biggest accuracy bottleneck (65.8%).
+2. **Cross-encoder reranking** — rerank top-20 claims for precision
+3. **Answer prompt tuning** — structured context with entity groups and temporal annotations
+4. **Specificity scoring** — penalize generic claims ("John values kindness") vs specific ("John renovated community center")
 
 ## Cost
 

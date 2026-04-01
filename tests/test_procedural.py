@@ -185,8 +185,12 @@ async def test_extract_procedural_handles_llm_failure() -> None:
 # ── Search tests ─────────────────────────────────────────────────────────
 
 
-async def test_search_filters_by_memory_type(store: Tensory) -> None:
-    """search() with memory_type filter returns only matching claims."""
+async def test_search_boosts_by_memory_type(store: Tensory) -> None:
+    """search() with memory_type boosts matching claims to top (soft boost).
+
+    memory_type is a ranking hint, NOT a hard filter. All claims are
+    still retrieved; matching ones get a 1.3x score boost after RRF merge.
+    """
     # Add a semantic claim
     await store.add_claims(
         [
@@ -197,9 +201,9 @@ async def test_search_filters_by_memory_type(store: Tensory) -> None:
     await store.add_claims(
         [
             Claim(
-                text="Skill: when user asks for price, do: open exchange; check price",
+                text="Skill: when user asks for Bitcoin price, do: open exchange; check Bitcoin",
                 memory_type=MemoryType.PROCEDURAL,
-                trigger="user asks for price",
+                trigger="user asks for Bitcoin price",
                 steps=["open exchange", "check price"],
                 entities=["Bitcoin"],
             ),
@@ -210,15 +214,17 @@ async def test_search_filters_by_memory_type(store: Tensory) -> None:
     all_results = await store.search("Bitcoin")
     assert len(all_results) >= 2
 
-    # Search procedural only
+    # Search with procedural hint — procedural claims boosted to top
     proc_results = await store.search("Bitcoin", memory_type=MemoryType.PROCEDURAL)
     assert len(proc_results) >= 1
-    assert all(r.claim.memory_type == MemoryType.PROCEDURAL for r in proc_results)
+    # Top result should be procedural (boosted)
+    assert proc_results[0].claim.memory_type == MemoryType.PROCEDURAL
 
-    # Search semantic only
+    # Search with semantic hint — semantic claims boosted to top
     sem_results = await store.search("Bitcoin", memory_type=MemoryType.SEMANTIC)
     assert len(sem_results) >= 1
-    assert all(r.claim.memory_type == MemoryType.SEMANTIC for r in sem_results)
+    # Top result should be semantic (boosted)
+    assert sem_results[0].claim.memory_type == MemoryType.SEMANTIC
 
 
 # ── Store integration tests ──────────────────────────────────────────────

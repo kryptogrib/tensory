@@ -25,6 +25,19 @@ from tensory.prompts import PROCEDURAL_INDUCTION_PROMPT
 logger = logging.getLogger(__name__)
 
 
+# ── Deterministic ClaimType → MemoryType mapping ────────────────────────
+# Grounded in PlugMem's cognitive taxonomy (arXiv:2603.03296):
+#   experience → episodic  (events with time/place context)
+#   fact/observation/opinion → semantic (stable knowledge)
+# Procedural is set explicitly by extract_procedural(), not this map.
+CLAIM_TO_MEMORY_TYPE: dict[ClaimType, MemoryType] = {
+    ClaimType.EXPERIENCE: MemoryType.EPISODIC,
+    ClaimType.FACT: MemoryType.SEMANTIC,
+    ClaimType.OBSERVATION: MemoryType.SEMANTIC,
+    ClaimType.OPINION: MemoryType.SEMANTIC,
+}
+
+
 @runtime_checkable
 class LLMProtocol(Protocol):
     """Protocol for LLM text completion.
@@ -349,11 +362,13 @@ def _parse_extraction(
             continue
 
         claim_type = _parse_claim_type(str(item.get("type", "fact")))
+        memory_type = CLAIM_TO_MEMORY_TYPE.get(claim_type, MemoryType.SEMANTIC)
         temporal_val: Any = item.get("temporal")
         claims.append(
             Claim(
                 text=claim_text,
                 type=claim_type,
+                memory_type=memory_type,
                 entities=_parse_list(item.get("entities", [])),
                 temporal=str(temporal_val) if temporal_val else None,
                 confidence=_parse_float(item.get("confidence"), default=1.0),

@@ -674,8 +674,12 @@ class Tensory:
             query,
             context=context,
             memory_type=MemoryType.PROCEDURAL,
-            limit=limit,
+            limit=limit * 3,  # over-fetch for post-filter headroom
         )
+
+        # Hard filter: search_procedural guarantees PROCEDURAL-only results
+        results = [r for r in results if r.claim.memory_type == MemoryType.PROCEDURAL]
+        results = results[:limit]
 
         # Re-rank: blend search score with success_rate
         for r in results:

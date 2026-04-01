@@ -52,6 +52,11 @@ DEFAULT_WEIGHTS: dict[str, float] = {
     "graph": 0.3,
 }
 
+# MMR diversity balance: 1.0 = pure relevance, 0.0 = pure diversity.
+# 0.7 empirically calibrated on LoCoMo: 0.6 caused precision loss
+# (diverse but irrelevant claims displaced correct ones in q3, q11, q6).
+MMR_LAMBDA: float = 0.7
+
 
 # ── Public API ────────────────────────────────────────────────────────────
 
@@ -77,18 +82,24 @@ async def hybrid_search(
         context_id: Optional context for relevance filtering.
         limit: Maximum results to return.
         weights: Channel weights for RRF (default: vector=0.4, fts=0.3, graph=0.3).
-        memory_type: Optional memory type filter (e.g. "semantic", "procedural").
+        memory_type: Optional memory type hint for post-RRF score boost.
+            Used as a soft ranking signal, NOT a hard filter — claims of
+            all types are always retrieved. Matching claims get a 1.3x
+            score boost after RRF merge.
     """
     w = weights or DEFAULT_WEIGHTS
     internal_limit = max(limit * 3, 20)  # fetch more for better RRF merge
 
     # All three channels in parallel — graceful degradation on failure
+    # NOTE: memory_type is NOT passed to channels — it's a post-RRF boost,
+    # not a SQL WHERE filter. This prevents zero-result failures when
+    # claims exist but are tagged with a different memory_type.
     fts_task = fts_search(
-        query, db, context_id=context_id, limit=internal_limit, memory_type=memory_type
+        query, db, context_id=context_id, limit=internal_limit
     )
     vec_task = (
         vector_search(
-            embedding, db, context_id=context_id, limit=internal_limit, memory_type=memory_type
+            embedding, db, context_id=context_id, limit=internal_limit
         )
         if embedding
         else _empty_results()
@@ -99,7 +110,6 @@ async def hybrid_search(
         db,
         context_id=context_id,
         limit=internal_limit,
-        memory_type=memory_type,
     )
 
     results = await asyncio.gather(fts_task, vec_task, graph_task, return_exceptions=True)
@@ -119,6 +129,13 @@ async def hybrid_search(
         weights=[w.get("fts", 0.3), w.get("vector", 0.4), w.get("graph", 0.3)],
         limit=limit * 3,
     )
+
+    # Post-RRF boost phase: soft ranking signals applied before MMR.
+    # All claims remain — boosts only adjust scores.
+    if memory_type:
+        merged = _apply_memory_type_boost(merged, memory_type, boost_factor=1.3)
+    merged = _apply_temporal_boost(merged, query)
+    merged = _apply_entity_relevance_boost(merged, query)
 
     # MMR reranking for diversity (falls back to entity cap if no embeddings)
     return await _mmr_rerank(
@@ -339,6 +356,175 @@ async def graph_search(
     return results
 
 
+# ── Memory-type boost ────────────────────────────────────────────────────
+
+# Boost factor for claims matching the routed memory type.
+# Applied post-RRF, before MMR. Empirically calibrated: 1.3 provides
+# meaningful promotion without dominating when RRF scores are compressed.
+MEMORY_TYPE_BOOST: float = 1.3
+
+
+def _apply_memory_type_boost(
+    results: list[SearchResult],
+    memory_type: str,
+    boost_factor: float = MEMORY_TYPE_BOOST,
+) -> list[SearchResult]:
+    """Boost scores for claims matching the target memory type.
+
+    This is a soft ranking signal — all claims remain, matching ones
+    get promoted. Re-sorts by boosted score.
+    """
+    boosted: list[SearchResult] = []
+    for r in results:
+        if r.claim.memory_type.value == memory_type:
+            boosted.append(
+                SearchResult(
+                    claim=r.claim,
+                    score=r.score * boost_factor,
+                    relevance=r.relevance,
+                    method=r.method,
+                )
+            )
+        else:
+            boosted.append(r)
+
+    boosted.sort(key=lambda x: x.score, reverse=True)
+    return boosted
+
+
+# ── Temporal boost ───────────────────────────────────────────────────────
+
+# Regex for dates embedded in claim text (e.g. "On 5 August 2023, ...")
+# Covers: "5 August 2023", "August 5, 2023", "2023-08-05", "July 2023"
+_MONTH_NAMES = (
+    r"January|February|March|April|May|June|July|August|"
+    r"September|October|November|December"
+)
+_DATE_IN_TEXT = re.compile(
+    # "5 August 2023" or "On 5 August 2023"
+    rf"(?:On |on |In |in |Since |since |Before |before |After |after |During |during )?"
+    rf"\d{{1,2}}\s+(?:{_MONTH_NAMES})\s+\d{{4}}"
+    # "August 5, 2023"
+    rf"|(?:{_MONTH_NAMES})\s+\d{{1,2}},?\s+\d{{4}}"
+    # "July 2023" or "During July 2023" (month + year, no day)
+    rf"|(?:{_MONTH_NAMES})\s+\d{{4}}"
+    # ISO format "2023-08-05"
+    r"|\d{4}-\d{2}-\d{2}",
+    re.IGNORECASE,
+)
+
+# Query patterns that signal temporal intent.
+# Two tiers: explicit temporal question words and seasonal references.
+# NOTE: "planning to/for" was tested but too broad — it fires on
+# non-temporal queries like "planning on going camping" and promotes
+# dated past-events over future-planning claims. Keep this conservative.
+_TEMPORAL_QUERY = re.compile(
+    # Explicit temporal question words
+    r"\bwhen\b|\bwhat\s+date\b|\bwhat\s+year\b|\bhow\s+long\s+ago\b"
+    r"|\bsince\s+when\b|\bwhat\s+time\b"
+    # Seasonal references (only with explicit modifiers)
+    r"|\b(?:this|last|next|during|for\s+the)\s+"
+    r"(?:summer|winter|spring|fall|autumn)\b",
+    re.IGNORECASE,
+)
+
+# Boost factor for claims containing dates when query is temporal.
+TEMPORAL_BOOST: float = 1.25
+
+
+def _apply_temporal_boost(
+    results: list[SearchResult],
+    query: str,
+) -> list[SearchResult]:
+    """Boost claims containing explicit dates when query is temporal.
+
+    When the user asks "When did X?", claims with dates embedded in their
+    text (e.g. "On 5 August 2023, John ...") are more useful than claims
+    without dates (e.g. "John organized a charity run").
+
+    Only activates for temporal queries (detected via regex).
+    """
+    if not _TEMPORAL_QUERY.search(query):
+        return results
+
+    boosted: list[SearchResult] = []
+    for r in results:
+        has_date = bool(_DATE_IN_TEXT.search(r.claim.text))
+        if has_date:
+            boosted.append(
+                SearchResult(
+                    claim=r.claim,
+                    score=r.score * TEMPORAL_BOOST,
+                    relevance=r.relevance,
+                    method=r.method,
+                )
+            )
+        else:
+            boosted.append(r)
+
+    boosted.sort(key=lambda x: x.score, reverse=True)
+    return boosted
+
+
+# ── Entity relevance boost ──────────────────────────────────────────────
+
+# Boost for claims mentioning entities from the query.
+ENTITY_MENTION_BOOST: float = 1.15
+
+
+def _apply_entity_relevance_boost(
+    results: list[SearchResult],
+    query: str,
+) -> list[SearchResult]:
+    """Boost claims whose text mentions entities from the query.
+
+    Addresses entity confusion: "What did Maria do?" should promote
+    claims mentioning "Maria" over claims mentioning only "John".
+    Uses case-insensitive substring match on capitalized query words
+    (likely proper nouns / entity names).
+    """
+    # Extract likely entity names: capitalized words ≥ 3 chars
+    query_entities = [
+        w for w in query.split()
+        if len(w) >= 3 and w[0].isupper() and w.lower() not in _STOPWORDS
+    ]
+
+    if not query_entities:
+        return results
+
+    query_lower = [e.lower() for e in query_entities]
+
+    boosted: list[SearchResult] = []
+    for r in results:
+        text_lower = r.claim.text.lower()
+        matches = sum(1 for e in query_lower if e in text_lower)
+        if matches > 0:
+            # Boost proportional to number of entity matches
+            factor = ENTITY_MENTION_BOOST ** min(matches, 3)
+            boosted.append(
+                SearchResult(
+                    claim=r.claim,
+                    score=r.score * factor,
+                    relevance=r.relevance,
+                    method=r.method,
+                )
+            )
+        else:
+            boosted.append(r)
+
+    boosted.sort(key=lambda x: x.score, reverse=True)
+    return boosted
+
+
+# Common words that look capitalized at sentence start but aren't entities
+_STOPWORDS = frozenset({
+    "what", "when", "where", "who", "why", "how", "which", "does", "did",
+    "has", "had", "was", "were", "are", "the", "and", "for", "that", "this",
+    "with", "from", "would", "could", "should", "might", "about", "after",
+    "before", "around", "been", "being", "have", "not", "his", "her",
+})
+
+
 # ── RRF merge ─────────────────────────────────────────────────────────────
 
 
@@ -439,7 +625,7 @@ async def _mmr_rerank(
     query_embedding: list[float] | None,
     db: aiosqlite.Connection,
     limit: int = 10,
-    mmr_lambda: float = 0.7,
+    mmr_lambda: float = MMR_LAMBDA,
 ) -> list[SearchResult]:
     """Maximal Marginal Relevance reranking (Carbonell & Goldstein, 1998).
 

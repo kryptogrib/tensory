@@ -11,8 +11,13 @@ import hashlib
 import pytest
 
 from tensory import Claim, Tensory
-from tensory.models import SearchResult
-from tensory.search import _rrf_merge
+from tensory.models import MemoryType, SearchResult
+from tensory.search import (
+    _apply_entity_relevance_boost,
+    _apply_memory_type_boost,
+    _apply_temporal_boost,
+    _rrf_merge,
+)
 
 # ── Fake embedder for deterministic testing ───────────────────────────────
 
@@ -322,3 +327,144 @@ async def test_reinforce_stacks_on_multiple_searches(store: Tensory) -> None:
     assert row is not None
     assert float(row[0]) == pytest.approx(0.60, abs=0.01)  # 0.5 + 0.05 + 0.05
     assert row[1] == 2
+
+
+# ── Memory-type soft boost tests ────────────────────────────────────────
+
+
+def test_memory_type_boost_promotes_matching_claims() -> None:
+    """Claims matching memory_type get boosted score."""
+    episodic_claim = Claim(
+        id="ep1", text="Event happened on May 2023", memory_type=MemoryType.EPISODIC
+    )
+    semantic_claim = Claim(
+        id="sem1", text="Alice is an engineer", memory_type=MemoryType.SEMANTIC
+    )
+
+    results = [
+        SearchResult(claim=semantic_claim, score=0.5, method="hybrid"),
+        SearchResult(claim=episodic_claim, score=0.4, method="hybrid"),
+    ]
+
+    boosted = _apply_memory_type_boost(results, "episodic", boost_factor=1.3)
+
+    # Episodic claim should now rank first (0.4 * 1.3 = 0.52 > 0.5)
+    assert boosted[0].claim.id == "ep1"
+    assert boosted[0].score == pytest.approx(0.52)
+    # Semantic claim unchanged
+    assert boosted[1].claim.id == "sem1"
+    assert boosted[1].score == pytest.approx(0.5)
+
+
+def test_memory_type_boost_no_matching_claims() -> None:
+    """When no claims match the type, all scores remain unchanged."""
+    claim = Claim(id="s1", text="Fact", memory_type=MemoryType.SEMANTIC)
+    results = [SearchResult(claim=claim, score=0.5, method="hybrid")]
+
+    boosted = _apply_memory_type_boost(results, "episodic")
+
+    assert len(boosted) == 1
+    assert boosted[0].score == pytest.approx(0.5)  # unchanged
+
+
+async def test_search_with_episodic_hint_on_semantic_data(store: Tensory) -> None:
+    """REGRESSION: search with memory_type=episodic must return results
+    even when all claims are semantic (the multi-hop F1=0.00 bug).
+    """
+    await store.add_claims(
+        [
+            Claim(
+                text="On 9 June 2023, Maria joined a gym",
+                memory_type=MemoryType.SEMANTIC,
+            ),
+            Claim(
+                text="John took a road trip to the Pacific Northwest",
+                memory_type=MemoryType.SEMANTIC,
+            ),
+        ]
+    )
+
+    # This used to return 0 results because of hard WHERE filter
+    results = await store.search("Maria gym", memory_type=MemoryType.EPISODIC)
+
+    assert len(results) >= 1
+    assert any("gym" in r.claim.text.lower() for r in results)
+
+
+# ── Temporal boost tests ────────────────────────────────────────────────
+
+
+def test_temporal_boost_promotes_dated_claims() -> None:
+    """Claims with dates rank higher for 'When' queries."""
+    dated = Claim(id="d1", text="On 5 August 2023, John ran a charity event")
+    undated = Claim(id="u1", text="John organized a charity run with sponsors")
+
+    results = [
+        SearchResult(claim=undated, score=0.6, method="hybrid"),
+        SearchResult(claim=dated, score=0.5, method="hybrid"),
+    ]
+
+    boosted = _apply_temporal_boost(results, "When did John run the charity?")
+
+    # Dated claim should be promoted (0.5 * 1.25 = 0.625 > 0.6)
+    assert boosted[0].claim.id == "d1"
+    assert boosted[0].score == pytest.approx(0.625)
+
+
+def test_temporal_boost_fires_on_seasonal_queries() -> None:
+    """Seasonal queries like 'plans for the summer' trigger temporal boost."""
+    dated = Claim(id="d1", text="During July 2023, Caroline attended a conference")
+    undated = Claim(id="u1", text="Caroline is from Sweden")
+
+    results = [
+        SearchResult(claim=undated, score=0.6, method="hybrid"),
+        SearchResult(claim=dated, score=0.5, method="hybrid"),
+    ]
+
+    # "for the summer" should trigger temporal boost
+    boosted = _apply_temporal_boost(results, "What are Caroline's plans for the summer?")
+    assert boosted[0].claim.id == "d1"
+    assert boosted[0].score == pytest.approx(0.625)
+
+    # "planning to" should NOT trigger (too broad, causes false positives)
+    boosted2 = _apply_temporal_boost(results, "What is Caroline planning to do?")
+    assert boosted2[0].claim.id == "u1"  # unchanged — no temporal boost
+
+
+def test_temporal_boost_no_op_for_non_temporal_query() -> None:
+    """Non-temporal queries don't trigger temporal boost."""
+    dated = Claim(id="d1", text="On 5 August 2023, John ran")
+    results = [SearchResult(claim=dated, score=0.5, method="hybrid")]
+
+    boosted = _apply_temporal_boost(results, "What did John organize?")
+
+    assert boosted[0].score == pytest.approx(0.5)  # unchanged
+
+
+# ── Entity relevance boost tests ────────────────────────────────────────
+
+
+def test_entity_boost_promotes_matching_claims() -> None:
+    """Claims mentioning query entities rank higher."""
+    maria = Claim(id="m1", text="Maria joined a gym on 9 June")
+    john = Claim(id="j1", text="John joined a gym on 10 June")
+
+    results = [
+        SearchResult(claim=john, score=0.5, method="hybrid"),
+        SearchResult(claim=maria, score=0.48, method="hybrid"),
+    ]
+
+    boosted = _apply_entity_relevance_boost(results, "When did Maria join a gym?")
+
+    # Maria claim should be promoted above John
+    assert boosted[0].claim.id == "m1"
+
+
+def test_entity_boost_ignores_stopwords() -> None:
+    """Query stopwords like 'What', 'When' are not treated as entities."""
+    claim = Claim(id="c1", text="The event happened")
+    results = [SearchResult(claim=claim, score=0.5, method="hybrid")]
+
+    boosted = _apply_entity_relevance_boost(results, "What happened?")
+
+    assert boosted[0].score == pytest.approx(0.5)  # no boost

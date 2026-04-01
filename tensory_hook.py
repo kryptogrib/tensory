@@ -156,16 +156,16 @@ async def cmd_recall(cwd: str) -> None:
         # Prepend a header so Claude knows what this is
         header = f"[tensory] Recalled {len(results)} memories for project '{project_name}':\n\n"
 
-        # Debug: add visible block showing what was recalled
+        # Debug: full detail to log file only (not in Claude's context)
         if DEBUG:
             debug_block = _format_debug_recall(project_name, results, elapsed_ms)
             _debug_stderr(
                 f"recall: query='{project_name}' results={len(results)} "
                 f"time={elapsed_ms:.0f}ms"
             )
-            _print_hook_output(header + context_text + "\n\n" + debug_block)
-        else:
-            _print_hook_output(header + context_text)
+            _debug_log(debug_block)
+
+        _print_hook_output(header + context_text)
     finally:
         await store.close()
 
@@ -241,8 +241,30 @@ async def cmd_health() -> None:
 
 
 def _debug_stderr(msg: str) -> None:
-    """Print debug message to stderr (visible in Claude Code hook output)."""
-    print(f"[tensory:debug] {msg}", file=sys.stderr)
+    """Print debug message to stderr + log file.
+
+    stderr is captured by Claude Code and not shown to the user,
+    so we also append to a log file the user can ``tail -f``.
+    """
+    line = f"[tensory:debug] {msg}"
+    print(line, file=sys.stderr)
+    # Also write to log file so user can see it in terminal
+    _debug_log(line)
+
+
+def _debug_log(line: str) -> None:
+    """Append a line to the tensory debug log file."""
+    log_path = os.path.expanduser(
+        os.environ.get("TENSORY_DEBUG_LOG", "~/.local/share/tensory/debug.log")
+    )
+    log_dir = os.path.dirname(log_path)
+    if log_dir:
+        os.makedirs(log_dir, exist_ok=True)
+    from datetime import datetime, timezone
+
+    ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
+    with open(log_path, "a") as f:
+        f.write(f"[{ts}] {line}\n")
 
 
 def _format_debug_recall(query: str, results: list[Any], elapsed_ms: float) -> str:
@@ -264,21 +286,35 @@ def _format_debug_recall(query: str, results: list[Any], elapsed_ms: float) -> s
 
 
 def _format_debug_save(result: Any, elapsed_ms: float) -> None:
-    """Print debug info about saved claims to stderr."""
+    """Print debug info about saved claims to stderr + log file."""
     from collections import Counter
 
     type_counts = Counter(c.type for c in result.claims)
     types_str = ", ".join(f"{count} {t}" for t, count in type_counts.most_common())
 
-    _debug_stderr(
+    summary = (
         f"save: {len(result.claims)} claims ({types_str}), "
         f"{len(result.collisions)} collisions, "
         f"time={elapsed_ms:.0f}ms"
     )
+    _debug_stderr(summary)
 
-    # Show collision details if any
-    for col in result.collisions[:3]:
-        _debug_stderr(f"  collision: {col.type} — {col.explanation[:60] if col.explanation else '?'}")
+    # Full detail to log file
+    lines: list[str] = []
+    for i, c in enumerate(result.claims, 1):
+        entities = ", ".join(c.entities[:3]) if c.entities else "—"
+        lines.append(
+            f"  {i}. [{c.type}] {c.text[:100]}"
+            f"{'...' if len(c.text) > 100 else ''}"
+        )
+        lines.append(f"     entities: {entities}")
+    for col in result.collisions[:5]:
+        lines.append(
+            f"  collision: {col.type} — "
+            f"{col.explanation[:80] if col.explanation else '?'}"
+        )
+    if lines:
+        _debug_log("\n".join(lines))
 
 
 def _print_hook_output(additional_context: str) -> None:
