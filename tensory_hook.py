@@ -264,6 +264,42 @@ async def cmd_save(transcript: str) -> None:
         await store.close()
 
 
+async def cmd_dream() -> None:
+    """Run lightweight memory consolidation (decay + dedup + cleanup).
+
+    No LLM calls — safe to run frequently. Prints summary JSON to stdout.
+    """
+    import time
+
+    from tensory.consolidate import consolidate
+
+    start = time.monotonic()
+    store = await _create_store()
+    try:
+        result = await consolidate(store.db)
+        elapsed_ms = (time.monotonic() - start) * 1000
+
+        summary = {
+            "decayed": result.decayed_count,
+            "dedup_found": result.dedup_pairs_found,
+            "dedup_superseded": result.dedup_superseded,
+            "cleaned_up": result.cleaned_up,
+            "errors": result.errors,
+            "elapsed_ms": round(elapsed_ms),
+        }
+        print(json.dumps(summary, indent=2))
+
+        if DEBUG:
+            _debug_stderr(
+                f"dream: decayed={result.decayed_count} "
+                f"dedup={result.dedup_superseded}/{result.dedup_pairs_found} "
+                f"cleanup={result.cleaned_up} "
+                f"time={elapsed_ms:.0f}ms"
+            )
+    finally:
+        await store.close()
+
+
 async def cmd_health() -> None:
     """Print component health as JSON."""
     store = await _create_store()
@@ -383,9 +419,9 @@ def _read_stdin() -> str:
 
 
 def main() -> None:
-    """CLI entry point: tensory-hook <recall|save|health> [args]."""
+    """CLI entry point: tensory-hook <recall|save|health|dream> [args]."""
     if len(sys.argv) < 2:
-        print("Usage: tensory-hook <recall|save|health>", file=sys.stderr)
+        print("Usage: tensory-hook <recall|save|health|dream>", file=sys.stderr)
         sys.exit(1)
 
     command = sys.argv[1]
@@ -406,6 +442,8 @@ def main() -> None:
         asyncio.run(cmd_save(transcript))
     elif command == "health":
         asyncio.run(cmd_health())
+    elif command == "dream":
+        asyncio.run(cmd_dream())
     else:
         print(f"Unknown command: {command}", file=sys.stderr)
         sys.exit(1)
