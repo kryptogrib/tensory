@@ -15,7 +15,20 @@ jobs:
         with:
           fetch-depth: 0  # full history for hatch-vcs version
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
       - uses: astral-sh/setup-uv@v6
+
+      - name: Build UI static files
+        run: |
+          cd ui && npm ci && NEXT_PUBLIC_API_URL="" npm run build
+          cd ..
+          rm -rf tensory/_ui_static
+          cp -r ui/out tensory/_ui_static
 
       - name: Build package
         run: uv build

@@ -59,20 +59,7 @@ DOMAIN: {domain}
 Extract claims from this text that are RELEVANT to the research goal above.
 Skip information that is not relevant to the goal.
 
-VERBATIM PRESERVATION — these rules override all others:
-- NEVER paraphrase proper nouns, specific objects, locations, or quantities
-- Use the speaker's EXACT words for: country names, city names, people's names, numbers, colors, specific objects
-- If the text says "Sweden", write "Sweden" — NOT "home country" or "Scandinavian country"
-- If the text says "sunset", write "sunset" — NOT "nature-inspired" or "landscape"
-- If the text says "3 children", write "3 children" — NOT "kids" or "younger children"
-- If the text says "rainbow flag", write "rainbow flag" — NOT "symbol" or "flag"
-- When in doubt, QUOTE the original words rather than summarize
-
-WRONG: "Melanie painted a nature-inspired artwork"
-RIGHT: "Melanie painted a sunset"
-
-WRONG: "Caroline moved from her home country"
-RIGHT: "Caroline moved from Sweden"
+Preserve specific details: use exact country names, city names, numbers, and object names from the text — do not generalize them.
 
 IMPORTANT temporal rules:
 - If the text has a date header (e.g. "[Session 3 — 2:00 pm on 25 May, 2023]"), use it as the reference date
@@ -113,20 +100,7 @@ If nothing is relevant to the research goal, return {{"claims": [], "relations":
 
 EXTRACT_PROMPT_GENERIC = """Extract all factual claims and entity relationships from this text.
 
-VERBATIM PRESERVATION — these rules override all others:
-- NEVER paraphrase proper nouns, specific objects, locations, or quantities
-- Use the speaker's EXACT words for: country names, city names, people's names, numbers, colors, specific objects
-- If the text says "Sweden", write "Sweden" — NOT "home country" or "Scandinavian country"
-- If the text says "sunset", write "sunset" — NOT "nature-inspired" or "landscape"
-- If the text says "3 children", write "3 children" — NOT "kids" or "younger children"
-- If the text says "rainbow flag", write "rainbow flag" — NOT "symbol" or "flag"
-- When in doubt, QUOTE the original words rather than summarize
-
-WRONG: "Melanie painted a nature-inspired artwork"
-RIGHT: "Melanie painted a sunset"
-
-WRONG: "Caroline moved from her home country"
-RIGHT: "Caroline moved from Sweden"
+Preserve specific details: use exact country names, city names, numbers, and object names from the text — do not generalize them.
 
 IMPORTANT temporal rules:
 - If the text has a date header (e.g. "[Session 3 — 2:00 pm on 25 May, 2023]"), use it as the reference date
