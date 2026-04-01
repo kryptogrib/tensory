@@ -10,8 +10,9 @@ data/*
 .venv/
 .env
 /.claude
-/docs
+/docs/*
 !/docs/superpowers/
+!/docs/*.md
 env.local
 res.sh
 .mcp.json

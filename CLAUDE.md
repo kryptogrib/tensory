@@ -3,6 +3,10 @@
 Context-aware memory for AI agents. Built-in collision detection.
 Full cognitive stack: episodic + semantic + procedural memory + reflection.
 
+## Docs
+
+Deep-dive docs in `docs/`: architecture, configuration, cognitive-mechanisms, context-lens, api-guide, benchmark-results, hooks. README is a funnel — detail lives in docs/.
+
 ## Tech Stack
 
 Python 3.11+, SQLite + sqlite-vec, Pydantic v2, asyncio
