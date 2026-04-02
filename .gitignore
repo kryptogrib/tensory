@@ -31,3 +31,7 @@ ui/.next/
 ui/public/*.mp3
 /docs/superpowers
 docs/documentation-guide.md
+/.runs
+/.weco
+scripts/normalize_paper.py
+benchmarks/eval_extraction.py
