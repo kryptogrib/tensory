@@ -13,6 +13,7 @@ from tensory.collisions import (
     _classify_collision,
     _content_words,
     _cosine_sim,
+    _extract_dates,
     _extract_numbers,
     _structural_conflict_type,
     _temporal_proximity,
@@ -776,3 +777,61 @@ def test_structural_conflict_type_complementary_facts() -> None:
         "Tensory supports procedural memory via Skill-MDP",
     )
     assert result == "related"
+
+
+# ── Temporal guard tests ─────────────────────────────────────────────────
+
+
+def test_extract_dates_iso_format() -> None:
+    """ISO dates like '2023-07-02' are extracted."""
+    assert _extract_dates("On 2023-07-02, Melanie signed up") == {"2023-07-02"}
+
+
+def test_extract_dates_natural_format() -> None:
+    """Natural dates like 'July 2, 2023' are extracted."""
+    dates = _extract_dates("On July 2, 2023, Melanie signed up for pottery")
+    assert "july 2, 2023" in dates
+
+
+def test_extract_dates_month_year() -> None:
+    """Month-year like 'June 2023' is extracted."""
+    dates = _extract_dates("Melanie went camping in June 2023")
+    assert "june 2023" in dates
+
+
+def test_extract_dates_no_date() -> None:
+    """Claims without dates return empty set."""
+    assert _extract_dates("Melanie loves pottery") == set()
+
+
+def test_temporal_guard_different_dates_no_supersede() -> None:
+    """Claims about different events (different dates) should NOT supersede."""
+    new_claim = Claim(text="On July 8, 2023, Melanie took her kids to a pottery workshop")
+    old_claim = Claim(text="On July 2, 2023, Melanie signed up for a pottery class")
+    # score > 0.9 would normally supersede, but temporal guard prevents it
+    result = _classify_collision(new_claim, old_claim, 0.95)
+    assert result == "related"
+
+
+def test_temporal_guard_same_date_still_supersedes() -> None:
+    """Claims about same date can still supersede (likely an update)."""
+    new_claim = Claim(text="On July 2, 2023, Melanie enrolled in a pottery class")
+    old_claim = Claim(text="On July 2, 2023, Melanie signed up for pottery")
+    result = _classify_collision(new_claim, old_claim, 0.95)
+    assert result == "supersedes"
+
+
+def test_temporal_guard_no_dates_still_supersedes() -> None:
+    """Claims without dates still supersede normally."""
+    new_claim = Claim(text="Melanie considers pottery a huge part of her life")
+    old_claim = Claim(text="Melanie views pottery as important to her life")
+    result = _classify_collision(new_claim, old_claim, 0.95)
+    assert result == "supersedes"
+
+
+def test_temporal_guard_one_dated_one_not_still_supersedes() -> None:
+    """When only one claim has a date, supersede is allowed (could be an update)."""
+    new_claim = Claim(text="Melanie uses pottery for self-expression")
+    old_claim = Claim(text="On July 2, 2023, Melanie signed up for pottery")
+    result = _classify_collision(new_claim, old_claim, 0.95)
+    assert result == "supersedes"

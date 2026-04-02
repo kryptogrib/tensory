@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
@@ -500,6 +501,32 @@ def _content_words(text: str) -> set[str]:
     return words
 
 
+# Regex for dates embedded in claim text — reuses patterns from search.py.
+# Matches: "5 August 2023", "August 5, 2023", "July 2023", "2023-08-05",
+# "On 2023-07-02", "On July 2, 2023", etc.
+_MONTH_NAMES_COL = (
+    r"January|February|March|April|May|June|July|August|"
+    r"September|October|November|December"
+)
+_DATE_RE = re.compile(
+    rf"\d{{1,2}}\s+(?:{_MONTH_NAMES_COL})\s+\d{{4}}"
+    rf"|(?:{_MONTH_NAMES_COL})\s+\d{{1,2}},?\s+\d{{4}}"
+    rf"|(?:{_MONTH_NAMES_COL})\s+\d{{4}}"
+    r"|\d{4}-\d{2}-\d{2}",
+    re.IGNORECASE,
+)
+
+
+def _extract_dates(text: str) -> set[str]:
+    """Extract normalized date strings from claim text.
+
+    Returns a set of lowercased date matches. Two claims describing the
+    same event will share at least one date; different events on different
+    dates will have disjoint sets.
+    """
+    return {m.lower().strip() for m in _DATE_RE.findall(text)}
+
+
 def _extract_numbers(text: str) -> set[str]:
     """Extract numeric values from text for conflict detection."""
     import re
@@ -513,6 +540,7 @@ def _classify_collision(new_claim: Claim, existing: Claim, score: float) -> str:
     """Classify collision type based on signals.
 
     - score > 0.9 → supersedes (very similar, newer replaces older)
+      UNLESS both claims have different embedded dates (= different events)
     - shared entities + high score → contradiction
     - moderate overlap → related
     - both confirm each other → confirms
@@ -520,6 +548,12 @@ def _classify_collision(new_claim: Claim, existing: Claim, score: float) -> str:
     shared = _shared_entities_ci(new_claim.entities, existing.entities)
 
     if score > 0.9:
+        # Temporal guard: if both claims mention specific dates and
+        # those dates differ, they describe distinct events — don't supersede.
+        new_dates = _extract_dates(new_claim.text)
+        old_dates = _extract_dates(existing.text)
+        if new_dates and old_dates and new_dates.isdisjoint(old_dates):
+            return "related"
         return "supersedes"
 
     if shared and score > 0.7:
