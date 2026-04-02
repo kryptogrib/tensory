@@ -73,12 +73,12 @@ def split_by_paragraphs(text: str, *, max_sections: int) -> list[str]:
 def normalize_entity(name: str) -> str:
     """Normalize entity name for comparison.
 
-    Lowercase + strip. Does NOT use LLM — pure string normalization.
-    Handles: "Bitcoin" = "BITCOIN" = " bitcoin ".
-    Does NOT handle: "ETH" ≠ "Ethereum" (abbreviation resolution
-    requires an alias table, not string matching).
+    Thin wrapper around graph.normalize_entity_name() — single source
+    of truth for entity normalization across the codebase.
     """
-    return name.strip().lower()
+    from tensory.graph import normalize_entity_name
+
+    return normalize_entity_name(name)
 
 
 def deduplicate_entities(entities: list[str]) -> list[str]:

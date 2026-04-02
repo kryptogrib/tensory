@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 # Future migrations: version -> list of SQL statements
 MIGRATIONS: dict[int, list[str]] = {
@@ -48,6 +48,15 @@ MIGRATIONS: dict[int, list[str]] = {
         "CREATE INDEX IF NOT EXISTS idx_collision_log_a ON collision_log(claim_a_id)",
         "CREATE INDEX IF NOT EXISTS idx_collision_log_b ON collision_log(claim_b_id)",
         "CREATE INDEX IF NOT EXISTS idx_collision_log_type ON collision_log(collision_type)",
+    ],
+    4: [
+        # Canonical entity name for case-insensitive dedup + indexed lookups.
+        # `name` stays as display name; `canonical` is the normalized lookup key.
+        "ALTER TABLE entities ADD COLUMN canonical TEXT",
+        # Backfill canonical from existing names (lowercase + strip)
+        "UPDATE entities SET canonical = LOWER(TRIM(name))",
+        # After backfill, make it NOT NULL via index (SQLite can't ALTER to NOT NULL)
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_entities_canonical ON entities(canonical)",
     ],
 }
 
@@ -128,6 +137,7 @@ _TABLES = [
     CREATE TABLE IF NOT EXISTS entities (
         id             TEXT PRIMARY KEY,
         name           TEXT NOT NULL,
+        canonical      TEXT,
         type           TEXT,
         mention_count  INTEGER DEFAULT 1,
         first_seen     TIMESTAMP DEFAULT CURRENT_TIMESTAMP

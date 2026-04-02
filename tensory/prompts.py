@@ -21,12 +21,29 @@ EXTRACT_WITH_CONTEXT: Final[
 RESEARCH GOAL: {goal}
 DOMAIN: {domain}
 
-Extract claims that are RELEVANT to the research goal and would be valuable when recalled \
+Extract ALL claims that are RELEVANT to the research goal and would be valuable when recalled \
 weeks or months from now by someone with no memory of this conversation.
 
 The test for every claim: "Would recalling this change how I think or act on this research goal?"
-Write each claim to be SELF-CONTAINED — understandable without the original text.
-Preserve specific details: use exact country names, city names, numbers, and object names from the text — do not generalize them.
+
+CRITICAL EXTRACTION RULES:
+1. ATOMICITY: Split complex sentences into independent atomic claims. A single claim must express exactly one fact, experience, observation, or opinion.
+2. COREFERENCE RESOLUTION: Never use pronouns (he, she, it, they, this, that). Replace all pronouns and vague references with the explicit entity names they refer to.
+3. SELF-CONTAINED: Every claim must be perfectly understandable on its own, without needing the original text or surrounding claims for context.
+4. SPECIFICITY: Preserve specific details: use exact country names, city names, exact numbers, and object names from the text. Never generalize them.
+5. EXHAUSTIVENESS: Extract absolutely every piece of knowledge that fits the criteria. Do not summarize or omit valuable details.
+
+IMPORTANT temporal rules:
+- If the text has a date header (e.g. "[Session 3 — 2:00 pm on 25 May, 2023]"), use it as the reference date
+- Convert ALL relative time references ("last Saturday", "yesterday", "next month") to absolute dates using the reference date
+- Include the specific date IN the claim text itself, e.g. "On 20 May 2023, Melanie ran a charity race"
+- The "temporal" field should contain the exact date in YYYY-MM-DD format when possible
+
+ENTITY RULES:
+- Entities are PROPER NOUNS: people, companies, projects, protocols, tools, places, specific products.
+- Use consistent Title Case: "EigenLayer", "Bitcoin", "Claude Code" — not "eigenlayer" or "claude code".
+- NEVER use generic terms as entities: "claims", "database", "extraction", "plugin", "API", "LLM", "function", "tests".
+- Good: ["Tensory", "SQLite", "EigenLayer"]  Bad: ["claims", "extraction", "plugin"]
 
 For each claim, rate its relevance to the research goal (0.0-1.0).
 
@@ -60,18 +77,34 @@ If nothing is relevant to the research goal, return {{"claims": [], "relations":
 
 EXTRACT_GENERIC: Final[
     str
-] = """You are building a long-term knowledge base. Extract claims that would be \
+] = """You are building a long-term knowledge base. Extract ALL claims that would be \
 valuable when recalled weeks or months from now by someone with no memory of this conversation.
 
 The test for every claim: "Would recalling this change how I think or act?"
 - YES → extract it. Causality, corrections, relationships, how things work, why decisions were made.
 - NO → skip it. Narration, status updates, counts, process logs, things obvious from context.
 
-Write each claim to be SELF-CONTAINED — understandable without the original text.
-Preserve specific details: use exact country names, city names, numbers, and object names from the text — do not generalize them.
+CRITICAL EXTRACTION RULES:
+1. ATOMICITY: Split complex sentences into independent atomic claims. A single claim must express exactly one fact, experience, observation, or opinion.
+2. COREFERENCE RESOLUTION: Never use pronouns (he, she, it, they, this, that). Replace all pronouns and vague references with the explicit entity names they refer to.
+3. SELF-CONTAINED: Every claim must be perfectly understandable on its own, without needing the original text or surrounding claims for context.
+4. SPECIFICITY: Preserve specific details: use exact country names, city names, exact numbers, and object names from the text. Never generalize them.
+5. EXHAUSTIVENESS: Extract absolutely every piece of valuable knowledge. Do not summarize or omit valuable details.
+
+IMPORTANT temporal rules:
+- If the text has a date header (e.g. "[Session 3 — 2:00 pm on 25 May, 2023]"), use it as the reference date
+- Convert ALL relative time references ("last Saturday", "yesterday", "next month") to absolute dates using the reference date
+- Include the specific date IN the claim text itself, e.g. "On 20 May 2023, Melanie ran a charity race"
+- The "temporal" field should contain the exact date in YYYY-MM-DD format when possible
 
 Bad:  "The issue was fixed by changing line 240"
 Good: "sqlite-vec returns L2 distance by default, not cosine — schema must set distance_metric=cosine explicitly"
+
+ENTITY RULES:
+- Entities are PROPER NOUNS: people, companies, projects, protocols, tools, places, specific products.
+- Use consistent Title Case: "EigenLayer", "Bitcoin", "Claude Code" — not "eigenlayer" or "claude code".
+- NEVER use generic terms as entities: "claims", "database", "extraction", "plugin", "API", "LLM", "function", "tests".
+- Good: ["Tensory", "SQLite", "EigenLayer"]  Bad: ["claims", "extraction", "plugin"]
 
 TEXT:
 {text}

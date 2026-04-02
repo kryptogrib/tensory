@@ -97,7 +97,7 @@ async def find_collisions(
         if candidate.id == claim.id or candidate.id in seen_ids:
             continue
 
-        shared = set(claim.entities) & set(candidate.entities)
+        shared = _shared_entities_ci(claim.entities, candidate.entities)
         is_waypoint = await _is_waypoint_linked(claim.id, candidate.id, db)
 
         # Use pre-computed similarity from sqlite-vec if available,
@@ -126,7 +126,7 @@ async def find_collisions(
                     claim_a=claim,
                     claim_b=candidate,
                     score=round(final, 4),
-                    shared_entities=list(shared),
+                    shared_entities=shared,
                     temporal_distance=round(temporal_score, 4),
                     type=collision_type,
                 )
@@ -172,21 +172,25 @@ async def _find_structural_conflicts(claim: Claim, db: aiosqlite.Connection) -> 
     if not claim.entities:
         return []
 
-    # Find claims sharing at least one entity, that aren't superseded
-    placeholders = ", ".join("?" for _ in claim.entities)
+    # Find claims sharing at least one entity, that aren't superseded.
+    # Match via canonical column (indexed, no LOWER() at query time).
+    from tensory.graph import normalize_entity_name
+
+    canonical_keys = [normalize_entity_name(e) for e in claim.entities]
+    placeholders = ", ".join("?" for _ in canonical_keys)
     cursor = await db.execute(
         f"""
         SELECT DISTINCT c.*
         FROM claims c
         JOIN claim_entities ce ON c.id = ce.claim_id
         JOIN entities e ON ce.entity_id = e.id
-        WHERE e.name IN ({placeholders})
+        WHERE e.canonical IN ({placeholders})
           AND c.id != ?
           AND c.superseded_at IS NULL
           AND (c.valid_to IS NULL OR c.valid_to > ?)
         LIMIT 20
         """,
-        (*claim.entities, claim.id, datetime.now(UTC).isoformat()),
+        (*canonical_keys, claim.id, datetime.now(UTC).isoformat()),
     )
     rows = await cursor.fetchall()
 
@@ -203,7 +207,7 @@ async def _find_structural_conflicts(claim: Claim, db: aiosqlite.Connection) -> 
         ent_rows = await ent_cursor.fetchall()
         candidate.entities = [str(r[0]) for r in ent_rows]
 
-        shared = set(claim.entities) & set(candidate.entities)
+        shared = _shared_entities_ci(claim.entities, candidate.entities)
         if shared:
             # Determine if this is a real contradiction or just related facts
             conflict_type = _structural_conflict_type(claim.text, candidate.text)
@@ -213,7 +217,7 @@ async def _find_structural_conflicts(claim: Claim, db: aiosqlite.Connection) -> 
                     claim_a=claim,
                     claim_b=candidate,
                     score=score,
-                    shared_entities=list(shared),
+                    shared_entities=shared,
                     temporal_distance=None,
                     type=conflict_type,
                 )
@@ -513,7 +517,7 @@ def _classify_collision(new_claim: Claim, existing: Claim, score: float) -> str:
     - moderate overlap → related
     - both confirm each other → confirms
     """
-    shared = set(new_claim.entities) & set(existing.entities)
+    shared = _shared_entities_ci(new_claim.entities, existing.entities)
 
     if score > 0.9:
         return "supersedes"
@@ -528,6 +532,20 @@ def _classify_collision(new_claim: Claim, existing: Claim, score: float) -> str:
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────
+
+
+def _shared_entities_ci(a: list[str], b: list[str]) -> list[str]:
+    """Canonical entity intersection.
+
+    Uses normalize_entity_name() for comparison — same normalization as
+    the canonical column in entities table. Handles case, articles, quotes.
+
+    Returns the original-cased names from list *a* that match any name in *b*.
+    """
+    from tensory.graph import normalize_entity_name
+
+    b_canonical = {normalize_entity_name(e) for e in b}
+    return [e for e in a if normalize_entity_name(e) in b_canonical]
 
 
 def _row_to_claim_light(row: aiosqlite.Row) -> Claim:

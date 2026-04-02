@@ -187,6 +187,35 @@ async def test_no_collision_different_entities(store: Tensory) -> None:
     assert len(result.collisions) == 0
 
 
+async def test_structural_collision_case_insensitive(store: Tensory) -> None:
+    """Entity matching must be case-insensitive — 'Tensory' == 'tensory'.
+
+    Regression: before fix, 'Tensory' (89 claims) and 'tensory' (40 claims)
+    were stored as separate entities and never collided structurally.
+    """
+    await store.add_claims([Claim(text="Tensory uses SQLite for storage", entities=["Tensory"])])
+
+    result = await store.add_claims(
+        [Claim(text="tensory uses PostgreSQL for storage", entities=["tensory"])]
+    )
+
+    # Must detect collision despite different casing
+    assert len(result.collisions) >= 1
+    shared = result.collisions[0].shared_entities
+    # Shared entity should be found (case-insensitive)
+    assert any(e.lower() == "tensory" for e in shared)
+
+
+async def test_add_entity_deduplicates_case(store: Tensory) -> None:
+    """add_entity() must not create duplicate entities for different casing."""
+    id1 = await store._graph.add_entity("Tensory")
+    id2 = await store._graph.add_entity("tensory")
+    id3 = await store._graph.add_entity("TENSORY")
+
+    # All three should resolve to the same entity
+    assert id1 == id2 == id3
+
+
 # ── Salience update on collision (integration) ───────────────────────────
 
 

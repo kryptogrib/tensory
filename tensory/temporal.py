@@ -19,6 +19,7 @@ import math
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+from tensory.graph import normalize_entity_name
 from tensory.models import Claim, ClaimType, MemoryType
 
 if TYPE_CHECKING:
@@ -99,12 +100,12 @@ async def timeline(
         FROM claims c
         JOIN claim_entities ce ON c.id = ce.claim_id
         JOIN entities e ON ce.entity_id = e.id
-        WHERE e.name = ? COLLATE NOCASE
+        WHERE e.canonical = ?
         {superseded_filter}
         ORDER BY c.created_at ASC
         LIMIT ?
         """,
-        (entity_name, limit),
+        (normalize_entity_name(entity_name), limit),
     )
     rows = await cursor.fetchall()
     return [_row_to_claim(row) for row in rows]

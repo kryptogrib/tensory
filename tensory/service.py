@@ -19,6 +19,7 @@ from typing import Any, cast
 
 from pydantic import BaseModel
 
+from tensory.graph import normalize_entity_name
 from tensory.models import (
     Claim,
     ClaimType,
@@ -380,8 +381,8 @@ class TensoryService:
                 " JOIN claim_entities ce ON c.id = ce.claim_id"
                 " JOIN entities e ON ce.entity_id = e.id"
             )
-            conditions.append("e.name = ?")
-            params.append(entity_filter)
+            conditions.append("e.canonical = ?")
+            params.append(normalize_entity_name(entity_filter))
 
         where_clause = (" WHERE " + " AND ".join(conditions)) if conditions else ""
 
@@ -579,8 +580,8 @@ class TensoryService:
             """SELECT c.* FROM claims c
                JOIN claim_entities ce ON c.id = ce.claim_id
                JOIN entities e ON ce.entity_id = e.id
-               WHERE e.name = ?""",
-            (entity_name,),
+               WHERE e.canonical = ?""",
+            (normalize_entity_name(entity_name),),
         )
         rows = await cursor.fetchall()
         col_names = [desc[0] for desc in cursor.description] if cursor.description else []
