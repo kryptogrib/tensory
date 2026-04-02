@@ -16,22 +16,28 @@ from typing import Final
 
 EXTRACT_WITH_CONTEXT: Final[
     str
-] = """You are building a long-term knowledge base focused on a specific research goal.
+] = """You are extracting information for a specific research goal.
 
 RESEARCH GOAL: {goal}
 DOMAIN: {domain}
 
-Extract ALL claims that are RELEVANT to the research goal and would be valuable when recalled \
-weeks or months from now by someone with no memory of this conversation.
+Extract claims from this text that are RELEVANT to the research goal above.
+Skip information that is not relevant to the goal.
 
-The test for every claim: "Would recalling this change how I think or act on this research goal?"
+VERBATIM PRESERVATION — these rules override all others:
+- NEVER paraphrase proper nouns, specific objects, locations, or quantities
+- Use the speaker's EXACT words for: country names, city names, people's names, numbers, colors, specific objects
+- If the text says "Sweden", write "Sweden" — NOT "home country" or "Scandinavian country"
+- If the text says "sunset", write "sunset" — NOT "nature-inspired" or "landscape"
+- If the text says "3 children", write "3 children" — NOT "kids" or "younger children"
+- If the text says "rainbow flag", write "rainbow flag" — NOT "symbol" or "flag"
+- When in doubt, QUOTE the original words rather than summarize
 
-CRITICAL EXTRACTION RULES:
-1. ATOMICITY: Split complex sentences into independent atomic claims. A single claim must express exactly one fact, experience, observation, or opinion.
-2. COREFERENCE RESOLUTION: Never use pronouns (he, she, it, they, this, that). Replace all pronouns and vague references with the explicit entity names they refer to.
-3. SELF-CONTAINED: Every claim must be perfectly understandable on its own, without needing the original text or surrounding claims for context.
-4. SPECIFICITY: Preserve specific details: use exact country names, city names, exact numbers, and object names from the text. Never generalize them.
-5. EXHAUSTIVENESS: Extract absolutely every piece of knowledge that fits the criteria. Do not summarize or omit valuable details.
+WRONG: "Melanie painted a nature-inspired artwork"
+RIGHT: "Melanie painted a sunset"
+
+WRONG: "Caroline moved from her home country"
+RIGHT: "Caroline moved from Sweden"
 
 IMPORTANT temporal rules:
 - If the text has a date header (e.g. "[Session 3 — 2:00 pm on 25 May, 2023]"), use it as the reference date
@@ -42,10 +48,12 @@ IMPORTANT temporal rules:
 ENTITY RULES:
 - Entities are PROPER NOUNS: people, companies, projects, protocols, tools, places, specific products.
 - Use consistent Title Case: "EigenLayer", "Bitcoin", "Claude Code" — not "eigenlayer" or "claude code".
-- NEVER use generic terms as entities: "claims", "database", "extraction", "plugin", "API", "LLM", "function", "tests".
+- NEVER use generic terms as entities: "claims", "database", "extraction", "plugin", "API", "LLM".
 - Good: ["Tensory", "SQLite", "EigenLayer"]  Bad: ["claims", "extraction", "plugin"]
 
-For each claim, rate its relevance to the research goal (0.0-1.0).
+For each claim, also:
+- Rate its relevance to the research goal (0.0-1.0)
+- Identify entity relationships (who did what to whom)
 
 TEXT:
 {text}
@@ -54,20 +62,19 @@ Return ONLY valid JSON (no markdown, no explanation):
 {{
   "claims": [
     {{
-      "text": "self-contained atomic claim",
+      "text": "atomic claim WITH dates included in the text",
       "type": "fact|experience|observation|opinion",
       "entities": ["Entity1", "Entity2"],
-      "temporal": "when this happened, or null",
+      "temporal": "YYYY-MM-DD or descriptive date, never null if any time reference exists",
       "confidence": 0.0-1.0,
-      "relevance": 0.0-1.0,
-      "durability": "permanent|long-term|short-term"
+      "relevance": 0.0-1.0
     }}
   ],
   "relations": [
     {{
       "from": "Entity1",
       "to": "Entity2",
-      "type": "relationship type",
+      "type": "PARTNERED_WITH|INVESTED_IN|DEPARTED_FROM|...",
       "fact": "human readable description"
     }}
   ]
@@ -77,19 +84,22 @@ If nothing is relevant to the research goal, return {{"claims": [], "relations":
 
 EXTRACT_GENERIC: Final[
     str
-] = """You are building a long-term knowledge base. Extract ALL claims that would be \
-valuable when recalled weeks or months from now by someone with no memory of this conversation.
+] = """Extract all factual claims and entity relationships from this text.
 
-The test for every claim: "Would recalling this change how I think or act?"
-- YES → extract it. Causality, corrections, relationships, how things work, why decisions were made.
-- NO → skip it. Narration, status updates, counts, process logs, things obvious from context.
+VERBATIM PRESERVATION — these rules override all others:
+- NEVER paraphrase proper nouns, specific objects, locations, or quantities
+- Use the speaker's EXACT words for: country names, city names, people's names, numbers, colors, specific objects
+- If the text says "Sweden", write "Sweden" — NOT "home country" or "Scandinavian country"
+- If the text says "sunset", write "sunset" — NOT "nature-inspired" or "landscape"
+- If the text says "3 children", write "3 children" — NOT "kids" or "younger children"
+- If the text says "rainbow flag", write "rainbow flag" — NOT "symbol" or "flag"
+- When in doubt, QUOTE the original words rather than summarize
 
-CRITICAL EXTRACTION RULES:
-1. ATOMICITY: Split complex sentences into independent atomic claims. A single claim must express exactly one fact, experience, observation, or opinion.
-2. COREFERENCE RESOLUTION: Never use pronouns (he, she, it, they, this, that). Replace all pronouns and vague references with the explicit entity names they refer to.
-3. SELF-CONTAINED: Every claim must be perfectly understandable on its own, without needing the original text or surrounding claims for context.
-4. SPECIFICITY: Preserve specific details: use exact country names, city names, exact numbers, and object names from the text. Never generalize them.
-5. EXHAUSTIVENESS: Extract absolutely every piece of valuable knowledge. Do not summarize or omit valuable details.
+WRONG: "Melanie painted a nature-inspired artwork"
+RIGHT: "Melanie painted a sunset"
+
+WRONG: "Caroline moved from her home country"
+RIGHT: "Caroline moved from Sweden"
 
 IMPORTANT temporal rules:
 - If the text has a date header (e.g. "[Session 3 — 2:00 pm on 25 May, 2023]"), use it as the reference date
@@ -97,13 +107,10 @@ IMPORTANT temporal rules:
 - Include the specific date IN the claim text itself, e.g. "On 20 May 2023, Melanie ran a charity race"
 - The "temporal" field should contain the exact date in YYYY-MM-DD format when possible
 
-Bad:  "The issue was fixed by changing line 240"
-Good: "sqlite-vec returns L2 distance by default, not cosine — schema must set distance_metric=cosine explicitly"
-
 ENTITY RULES:
 - Entities are PROPER NOUNS: people, companies, projects, protocols, tools, places, specific products.
 - Use consistent Title Case: "EigenLayer", "Bitcoin", "Claude Code" — not "eigenlayer" or "claude code".
-- NEVER use generic terms as entities: "claims", "database", "extraction", "plugin", "API", "LLM", "function", "tests".
+- NEVER use generic terms as entities: "claims", "database", "extraction", "plugin", "API", "LLM".
 - Good: ["Tensory", "SQLite", "EigenLayer"]  Bad: ["claims", "extraction", "plugin"]
 
 TEXT:
@@ -113,19 +120,19 @@ Return ONLY valid JSON (no markdown, no explanation):
 {{
   "claims": [
     {{
-      "text": "self-contained atomic claim",
+      "text": "atomic claim WITH dates included in the text",
       "type": "fact|experience|observation|opinion",
       "entities": ["Entity1", "Entity2"],
-      "temporal": "when this happened, or null",
+      "temporal": "YYYY-MM-DD or descriptive date, never null if any time reference exists",
       "confidence": 0.0-1.0,
-      "durability": "permanent|long-term|short-term"
+      "relevance": 1.0
     }}
   ],
   "relations": [
     {{
       "from": "Entity1",
       "to": "Entity2",
-      "type": "relationship type",
+      "type": "PARTNERED_WITH|INVESTED_IN|DEPARTED_FROM|...",
       "fact": "human readable description"
     }}
   ]

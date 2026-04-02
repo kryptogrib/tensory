@@ -273,48 +273,81 @@ async def graph_search(
 ) -> list[SearchResult]:
     """Graph-based search via entity traversal.
 
-    Extracts entity names from the query, traverses the graph,
-    and returns claims linked to reachable entities.
+    Extracts entity names from the query by matching against the
+    canonical entity index, then traverses the graph to find
+    connected claims. Uses find_path() between entity pairs for
+    multi-hop discovery.
     """
-    # Simple entity extraction: look up query terms as entity names
-    words = query.strip().split()
-    entity_ids: list[str] = []
+    from tensory.graph import normalize_entity_name
 
-    for word in words:
+    # ── Seed entity extraction via canonical index ────────────────────
+    # Match query words/phrases against stored entities using the
+    # indexed canonical column. Tries single words, bigrams, and
+    # trigrams to catch multi-word entities ("New York", "Claude Code").
+    words = re.split(r"[?\s,;:!.]+", query.strip())
+    words = [w for w in words if w]  # remove empty strings
+
+    # Build candidate phrases: single words, bigrams, trigrams
+    candidates: list[str] = []
+    for i in range(len(words)):
+        candidates.append(words[i])
+        if i + 1 < len(words):
+            candidates.append(f"{words[i]} {words[i + 1]}")
+        if i + 2 < len(words):
+            candidates.append(f"{words[i]} {words[i + 1]} {words[i + 2]}")
+
+    # Look up each candidate against canonical column (indexed)
+    entity_ids: list[str] = []
+    matched_names: list[str] = []
+    seen_ids: set[str] = set()
+    for candidate in candidates:
+        canonical = normalize_entity_name(candidate)
+        if not canonical or len(canonical) < 2:
+            continue
         cursor = await db.execute(
-            "SELECT id FROM entities WHERE name = ? COLLATE NOCASE",
-            (word.strip(),),
+            "SELECT id, name FROM entities WHERE canonical = ?",
+            (canonical,),
         )
         row = await cursor.fetchone()
-        if row:
+        if row and str(row[0]) not in seen_ids:
             entity_ids.append(str(row[0]))
-
-    if not entity_ids:
-        # Try multi-word match
-        cursor = await db.execute(
-            "SELECT id FROM entities WHERE name LIKE ? COLLATE NOCASE",
-            (f"%{query}%",),
-        )
-        rows = await cursor.fetchall()
-        entity_ids = [str(r[0]) for r in rows]
+            matched_names.append(str(row[1]))
+            seen_ids.add(str(row[0]))
 
     if not entity_ids:
         return []
 
-    # Expand through graph (1-hop neighbors)
-    all_entity_ids = set(entity_ids)
+    # ── Multi-hop: find_path() between entity pairs ──────────────────
+    # When 2+ entities matched, find graph paths between each pair.
+    # Intermediate entities on paths are added to expansion set.
+    path_entity_ids: set[str] = set()
+    if len(matched_names) >= 2:
+        for i in range(len(matched_names)):
+            for j in range(i + 1, len(matched_names)):
+                try:
+                    path_ids = await graph_backend.find_path(
+                        matched_names[i], matched_names[j],
+                    )
+                    path_entity_ids.update(path_ids)
+                except Exception:
+                    pass  # graceful degradation
+
+    # ── Expand through graph (1-hop neighbors) ───────────────────────
+    all_entity_ids = set(entity_ids) | path_entity_ids
     for eid in entity_ids:
-        # Get entity name for traversal
         cursor = await db.execute("SELECT name FROM entities WHERE id = ?", (eid,))
         row = await cursor.fetchone()
         if row:
-            neighbors = await graph_backend.traverse(str(row[0]), depth=1)
-            all_entity_ids.update(neighbors)
+            try:
+                neighbors = await graph_backend.traverse(str(row[0]), depth=1)
+                all_entity_ids.update(neighbors)
+            except Exception:
+                pass  # graceful degradation
 
     if not all_entity_ids:
         return []
 
-    # Find claims linked to these entities
+    # ── Find claims linked to these entities ─────────────────────────
     placeholders = ", ".join("?" for _ in all_entity_ids)
     memory_type_filter = "AND c.memory_type = ?" if memory_type is not None else ""
     graph_params: list[object] = [*all_entity_ids]
@@ -336,20 +369,32 @@ async def graph_search(
     )
     rows = await cursor.fetchall()
 
+    # Score: seed entities rank higher than path/neighbor entities
+    seed_entity_ids = set(entity_ids)
     results: list[SearchResult] = []
-    for i, row in enumerate(rows):
+    for row in rows:
         claim = row_to_claim(row)
-        # Score by position (graph doesn't have a natural similarity score)
-        score = 1.0 / (1 + i)
+        # Load entities for this claim to check seed overlap
+        ent_cursor = await db.execute(
+            "SELECT e.id FROM claim_entities ce JOIN entities e ON ce.entity_id = e.id WHERE ce.claim_id = ?",
+            (claim.id,),
+        )
+        claim_ent_ids = {str(r[0]) for r in await ent_cursor.fetchall()}
+        # Claims mentioning seed entities score higher
+        seed_overlap = len(claim_ent_ids & seed_entity_ids)
+        path_overlap = len(claim_ent_ids & path_entity_ids)
+        score = 0.5 + 0.3 * seed_overlap + 0.2 * path_overlap
         results.append(
             SearchResult(
                 claim=claim,
-                score=score,
+                score=min(score, 1.0),
                 method="graph",
             )
         )
 
-    return results
+    # Sort by score descending, then limit
+    results.sort(key=lambda r: r.score, reverse=True)
+    return results[:limit]
 
 
 # ── Memory-type boost ────────────────────────────────────────────────────

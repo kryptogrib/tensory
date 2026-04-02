@@ -165,7 +165,7 @@ async def test_extract_without_context() -> None:
     assert len(claims) == 1
     assert claims[0].memory_type == MemoryType.EPISODIC  # experience → episodic
     assert "RESEARCH GOAL" not in llm.last_prompt
-    assert "long-term knowledge base" in llm.last_prompt
+    assert "Extract all factual claims" in llm.last_prompt
 
 
 async def test_extract_llm_failure_returns_empty() -> None:

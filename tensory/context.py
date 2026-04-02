@@ -58,7 +58,12 @@ def format_context(
     unique_entities = _unique_primary_entities(results)
 
     if len(unique_entities) >= min_entities_for_grouping:
-        return _format_grouped(results, id_to_index)
+        body = _format_grouped(results, id_to_index)
+        # Add entity co-occurrence map to help LLM chain facts
+        cooccurrence = _entity_cooccurrence_map(results, id_to_index)
+        if cooccurrence:
+            return f"{cooccurrence}\n\n{body}"
+        return body
     return _format_flat(results, id_to_index)
 
 
@@ -118,6 +123,34 @@ def _format_grouped(
         sections.append("\n".join(lines))
 
     return "\n\n".join(sections)
+
+
+def _entity_cooccurrence_map(
+    results: list[SearchResult],
+    id_to_index: dict[str, int],
+) -> str:
+    """Build entity co-occurrence map showing which claims share entities.
+
+    Helps the answer LLM chain facts across entities for multi-hop reasoning.
+    Example output:
+        ENTITY LINKS: Claims 1,3 share [Caroline] · Claims 2,5 share [Melanie]
+    """
+    # Map entity → list of claim indices mentioning it
+    entity_claims: dict[str, list[int]] = defaultdict(list)
+    for i, r in enumerate(results, 1):
+        for entity in r.claim.entities:
+            entity_claims[entity].append(i)
+
+    # Find entities mentioned in 2+ claims (bridge entities)
+    bridges: list[str] = []
+    for entity, indices in sorted(entity_claims.items()):
+        if len(indices) >= 2:
+            idx_str = ",".join(str(x) for x in indices[:4])  # cap at 4
+            bridges.append(f"Claims {idx_str} share [{entity}]")
+
+    if not bridges:
+        return ""
+    return "ENTITY LINKS: " + " · ".join(bridges[:6])  # cap at 6 bridges
 
 
 def _build_annotation(
