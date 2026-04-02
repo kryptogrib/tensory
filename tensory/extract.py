@@ -20,7 +20,11 @@ import logging
 from typing import Any, Protocol, cast, runtime_checkable
 
 from tensory.models import Claim, ClaimType, Context, EntityRelation, MemoryType
-from tensory.prompts import PROCEDURAL_INDUCTION_PROMPT
+from tensory.prompts import (
+    EXTRACT_GENERIC,
+    EXTRACT_WITH_CONTEXT,
+    PROCEDURAL_INDUCTION_PROMPT,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -49,93 +53,6 @@ class LLMProtocol(Protocol):
     async def __call__(self, prompt: str) -> str: ...
 
 
-# ── Prompts ───────────────────────────────────────────────────────────────
-
-EXTRACT_PROMPT_WITH_CONTEXT = """You are extracting information for a specific research goal.
-
-RESEARCH GOAL: {goal}
-DOMAIN: {domain}
-
-Extract claims from this text that are RELEVANT to the research goal above.
-Skip information that is not relevant to the goal.
-
-Preserve specific details: use exact country names, city names, numbers, and object names from the text — do not generalize them.
-
-IMPORTANT temporal rules:
-- If the text has a date header (e.g. "[Session 3 — 2:00 pm on 25 May, 2023]"), use it as the reference date
-- Convert ALL relative time references ("last Saturday", "yesterday", "next month") to absolute dates using the reference date
-- Include the specific date IN the claim text itself, e.g. "On 20 May 2023, Melanie ran a charity race"
-- The "temporal" field should contain the exact date in YYYY-MM-DD format when possible
-
-For each claim, also:
-- Rate its relevance to the research goal (0.0-1.0)
-- Identify entity relationships (who did what to whom)
-
-TEXT:
-{text}
-
-Return ONLY valid JSON (no markdown, no explanation):
-{{
-  "claims": [
-    {{
-      "text": "atomic claim WITH dates included in the text",
-      "type": "fact|experience|observation|opinion",
-      "entities": ["Entity1", "Entity2"],
-      "temporal": "YYYY-MM-DD or descriptive date, never null if any time reference exists",
-      "confidence": 0.0-1.0,
-      "relevance": 0.0-1.0
-    }}
-  ],
-  "relations": [
-    {{
-      "from": "Entity1",
-      "to": "Entity2",
-      "type": "PARTNERED_WITH|INVESTED_IN|DEPARTED_FROM|...",
-      "fact": "human readable description"
-    }}
-  ]
-}}
-
-If nothing is relevant to the research goal, return {{"claims": [], "relations": []}}"""
-
-EXTRACT_PROMPT_GENERIC = """Extract all factual claims and entity relationships from this text.
-
-Preserve specific details: use exact country names, city names, numbers, and object names from the text — do not generalize them.
-
-IMPORTANT temporal rules:
-- If the text has a date header (e.g. "[Session 3 — 2:00 pm on 25 May, 2023]"), use it as the reference date
-- Convert ALL relative time references ("last Saturday", "yesterday", "next month") to absolute dates using the reference date
-- Include the specific date IN the claim text itself, e.g. "On 20 May 2023, Melanie ran a charity race"
-- The "temporal" field should contain the exact date in YYYY-MM-DD format when possible
-
-TEXT:
-{text}
-
-Return ONLY valid JSON (no markdown, no explanation):
-{{
-  "claims": [
-    {{
-      "text": "atomic claim WITH dates included in the text",
-      "type": "fact|experience|observation|opinion",
-      "entities": ["Entity1", "Entity2"],
-      "temporal": "YYYY-MM-DD or descriptive date, never null if any time reference exists",
-      "confidence": 0.0-1.0,
-      "relevance": 1.0
-    }}
-  ],
-  "relations": [
-    {{
-      "from": "Entity1",
-      "to": "Entity2",
-      "type": "PARTNERED_WITH|INVESTED_IN|DEPARTED_FROM|...",
-      "fact": "human readable description"
-    }}
-  ]
-}}
-
-If no claims can be extracted, return {{"claims": [], "relations": []}}"""
-
-
 # ── Public API ────────────────────────────────────────────────────────────
 
 
@@ -156,13 +73,13 @@ async def extract_claims(
         Tuple of (claims, relations).
     """
     if context:
-        prompt = EXTRACT_PROMPT_WITH_CONTEXT.format(
+        prompt = EXTRACT_WITH_CONTEXT.format(
             goal=context.goal,
             domain=context.domain,
             text=text,
         )
     else:
-        prompt = EXTRACT_PROMPT_GENERIC.format(text=text)
+        prompt = EXTRACT_GENERIC.format(text=text)
 
     try:
         response = await llm(prompt)

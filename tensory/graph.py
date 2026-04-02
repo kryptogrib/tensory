@@ -13,6 +13,7 @@ References:
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
@@ -20,6 +21,34 @@ if TYPE_CHECKING:
     import aiosqlite
 
 logger = logging.getLogger(__name__)
+
+
+# ── Entity normalization ─────────────────────────────────────────────────
+
+# Articles and noise prefixes stripped from entity names.
+_STRIP_PREFIXES = ("the ", "a ", "an ")
+
+
+def normalize_entity_name(name: str) -> str:
+    """Canonical form for entity dedup and lookup.
+
+    Applied once at write-time (add_entity), stored in `entities.canonical`.
+    All queries match against canonical — no LOWER()/COLLATE at read-time.
+
+    Rules:
+    - Lowercase + strip whitespace
+    - Remove leading articles ("the", "a", "an")
+    - Remove quotes and hyphens that cause false splits
+
+    Does NOT depluralize — too risky for proper nouns ("AWS" → "AW").
+    Does NOT resolve abbreviations ("ETH" ≠ "Ethereum") — needs alias table.
+    """
+    s = name.strip().lower()
+    for prefix in _STRIP_PREFIXES:
+        if s.startswith(prefix):
+            s = s[len(prefix) :]
+    s = re.sub(r"['\"]", "", s).strip()
+    return s
 
 
 @runtime_checkable
@@ -103,11 +132,17 @@ class SQLiteGraphBackend:
         self._db = db
 
     async def add_entity(self, name: str, entity_type: str | None = None) -> str:
-        """Insert entity or increment mention_count if it exists."""
-        # Normalize entity name for consistent lookups
-        normalized = name.strip()
+        """Insert entity or increment mention_count if it exists.
 
-        cursor = await self._db.execute("SELECT id FROM entities WHERE name = ?", (normalized,))
+        Lookup by ``canonical`` column (indexed) — single source of truth
+        for entity dedup. ``name`` stores first-seen casing for UI display.
+
+        "Tensory", "tensory", "TENSORY" → same entity, same ID.
+        """
+        display_name = name.strip()
+        canonical = normalize_entity_name(display_name)
+
+        cursor = await self._db.execute("SELECT id FROM entities WHERE canonical = ?", (canonical,))
         row = await cursor.fetchone()
 
         if row is not None:
@@ -120,8 +155,8 @@ class SQLiteGraphBackend:
 
         entity_id = uuid.uuid4().hex
         await self._db.execute(
-            "INSERT INTO entities (id, name, type) VALUES (?, ?, ?)",
-            (entity_id, normalized, entity_type),
+            "INSERT INTO entities (id, name, canonical, type) VALUES (?, ?, ?, ?)",
+            (entity_id, display_name, canonical, entity_type),
         )
         # Flush so FK references in entity_relations resolve immediately
         await self._db.commit()
@@ -160,19 +195,19 @@ class SQLiteGraphBackend:
         Finds entities connected within `depth` hops through shared claims.
         """
         edge_filter = ""
-        params: list[object] = [entity_name, depth]
+        canonical_key = normalize_entity_name(entity_name)
+        params: list[object] = [canonical_key, depth]
 
         if edge_types:
             placeholders = ", ".join("?" for _ in edge_types)
             edge_filter = f"AND er.rel_type IN ({placeholders})"
-            # params order: entity_name (seed), depth, then edge_types (in WHERE)
-            params = [entity_name, depth, *edge_types]
+            params = [canonical_key, depth, *edge_types]
 
         # Traverse through entity_relations (explicit LLM-extracted relations)
         sql = f"""
         WITH RECURSIVE reachable(entity_id, lvl) AS (
-            -- Seed: find the starting entity
-            SELECT id, 0 FROM entities WHERE name = ?
+            -- Seed: find the starting entity (canonical for case-insensitive match)
+            SELECT id, 0 FROM entities WHERE canonical = ?
 
             UNION ALL
 
@@ -219,7 +254,7 @@ class SQLiteGraphBackend:
             """
             WITH RECURSIVE path(entity_id, route, lvl) AS (
                 SELECT id, id, 0
-                FROM entities WHERE name = ?
+                FROM entities WHERE canonical = ?
 
                 UNION ALL
 
@@ -248,11 +283,11 @@ class SQLiteGraphBackend:
             )
             SELECT route FROM path
             JOIN entities e ON path.entity_id = e.id
-            WHERE e.name = ?
+            WHERE e.canonical = ?
             ORDER BY lvl
             LIMIT 1
             """,
-            (from_entity, to_entity),
+            (normalize_entity_name(from_entity), normalize_entity_name(to_entity)),
         )
         row = await cursor.fetchone()
         if row is None:
@@ -300,9 +335,10 @@ class SQLiteGraphBackend:
             WHERE er.expired_at IS NULL"""
 
         if entity_filter:
+            canonical_key = normalize_entity_name(entity_filter)
             cursor = await self._db.execute(
-                base_sql + " AND (e_from.name = ? OR e_to.name = ?)",
-                (entity_filter, entity_filter),
+                base_sql + " AND (e_from.canonical = ? OR e_to.canonical = ?)",
+                (canonical_key, canonical_key),
             )
         else:
             cursor = await self._db.execute(base_sql)
@@ -334,8 +370,8 @@ class SQLiteGraphBackend:
 
         # Include the seed entity so edges from it are captured
         seed_cursor = await self._db.execute(
-            "SELECT id FROM entities WHERE name = ?",
-            (entity_name,),
+            "SELECT id FROM entities WHERE canonical = ?",
+            (normalize_entity_name(entity_name),),
         )
         seed_row = await seed_cursor.fetchone()
         if seed_row is not None:
