@@ -21,40 +21,124 @@ EXTRACT_WITH_CONTEXT: Final[
 RESEARCH GOAL: {goal}
 DOMAIN: {domain}
 
-Extract ALL claims that are RELEVANT to the research goal and would be valuable when recalled \
-weeks or months from now by someone with no memory of this conversation.
+Extract ALL claims that are RELEVANT to the research goal and would be valuable when recalled weeks or months from now by someone with no memory of this conversation.
 
 The test for every claim: "Would recalling this change how I think or act on this research goal?"
+- YES → extract it. Causality, corrections, relationships, exact facts, specifics.
+- NO → skip it. Narration, minor status updates, process logs, obvious context, trivial tasks, routine activities, filler, conversational pleasantries, vague statements.
 
 CRITICAL EXTRACTION RULES:
-1. ATOMICITY: Split complex sentences into independent atomic claims. A single claim must express exactly one fact, experience, observation, or opinion.
-2. COREFERENCE RESOLUTION: Never use pronouns (he, she, it, they, this, that). Replace all pronouns and vague references with the explicit entity names they refer to.
+1. ATOMICITY: Split complex sentences into independent atomic claims. Each claim must express exactly one fact, experience, observation, or opinion.
+2. COREFERENCE RESOLUTION: Never use pronouns (he, she, it, they, this, that). Replace all pronouns and vague references with the explicit entity names they refer to. For first-person pronouns (I, we, my), use "the speaker" or their specific name.
 3. SELF-CONTAINED: Every claim must be perfectly understandable on its own, without needing the original text or surrounding claims for context.
-4. SPECIFICITY: Preserve specific details: use exact country names, city names, exact numbers, and object names from the text. Never generalize them.
-5. EXHAUSTIVENESS: Extract absolutely every piece of knowledge that fits the criteria. Do not summarize or omit valuable details.
+4. STRICT VERBATIM RULE (CRUCIAL): DO NOT PARAPHRASE. You MUST preserve precise details and the EXACT original phrasing from the text. Copy exact country names, city names, exact numbers, amounts, quotes, and object names verbatim. NEVER generalize, abstract, or summarize specific details into broader categories.
+   - BAD (Generalized): "home country" → GOOD (Verbatim): "Sweden"
+   - BAD (Summarized): "a significant amount" → GOOD (Verbatim): "$285M"
+   - BAD (Categorized): "nature-inspired painting" → GOOD (Verbatim): "sunset painting, oil on canvas, 24 by 36 inches"
+   - BAD (Vague): "the protocol was hacked" → GOOD (Verbatim): "Drift Protocol was hacked for $285M"
+   - BAD (Anonymized): "a specific person" → GOOD (Verbatim): "John Doe"
+5. HIGH PRECISION & FILTERING: Extract ONLY high-value claims. Prefer fewer high-value claims over many trivial ones. DO NOT extract trivial restatements, obvious context, conversational filler, process logs, routine activities, or minor tasks (e.g., updating a readme, fixing a typo). Skip anything that doesn't provide significant, actionable new information. If a claim is trivial, vague, or border-line, YOU MUST SKIP IT.
 
-IMPORTANT temporal rules:
-- If the text has a date header (e.g. "[Session 3 — 2:00 pm on 25 May, 2023]"), use it as the reference date
-- Convert ALL relative time references ("last Saturday", "yesterday", "next month") to absolute dates using the reference date
-- Include the specific date IN the claim text itself, e.g. "On 20 May 2023, Melanie ran a charity race"
-- The "temporal" field should contain the exact date in YYYY-MM-DD format when possible
+IMPORTANT TEMPORAL RULES:
+- If the text has a date header (e.g. "[Session 3 — 2:00 pm on 25 May, 2023]"), use it as the reference date.
+- Convert ALL relative time references ("last Saturday", "yesterday", "next month") to absolute dates using the reference date.
+- Include the specific date IN the claim text itself, e.g. "On 20 May 2023, Melanie ran a charity race".
+- The "temporal" field should contain the exact date in YYYY-MM-DD format when possible.
 
 ENTITY RULES:
 - Entities are PROPER NOUNS: people, companies, projects, protocols, tools, places, specific products.
-- Use consistent Title Case: "EigenLayer", "Bitcoin", "Claude Code" — not "eigenlayer" or "claude code".
-- NEVER use generic terms as entities: "claims", "database", "extraction", "plugin", "API", "LLM", "function", "tests".
+- Use consistent Title Case: "EigenLayer", "Bitcoin", "Claude Code".
+- NEVER use generic terms as entities: "claims", "database", "extraction", "plugin", "API".
 - Good: ["Tensory", "SQLite", "EigenLayer"]  Bad: ["claims", "extraction", "plugin"]
 
-For each claim, rate its relevance to the research goal (0.0-1.0).
+EXAMPLE EXTRACTION 1:
+Text:
+[Session 1 — 10:00 am on 10 Oct, 2023]
+Yesterday, Alice reviewed the pull request and noticed that SQLite defaults to L2 distance. She suggested changing it to cosine distance since our vector embeddings are normalized. She also mentioned the $285M Drift Protocol hack.
+
+Output:
+{{
+  "claims": [
+    {{
+      "text": "On 09 Oct 2023, Alice noticed that SQLite defaults to L2 distance instead of cosine distance.",
+      "type": "fact",
+      "entities": ["Alice", "SQLite"],
+      "temporal": "2023-10-09",
+      "confidence": 1.0,
+      "relevance": 0.9,
+      "durability": "permanent"
+    }},
+    {{
+      "text": "On 09 Oct 2023, Alice suggested configuring SQLite to use cosine distance because the vector embeddings are normalized.",
+      "type": "fact",
+      "entities": ["Alice", "SQLite"],
+      "temporal": "2023-10-09",
+      "confidence": 1.0,
+      "relevance": 0.8,
+      "durability": "permanent"
+    }},
+    {{
+      "text": "On 09 Oct 2023, Alice mentioned the $285M Drift Protocol hack.",
+      "type": "fact",
+      "entities": ["Alice", "Drift Protocol"],
+      "temporal": "2023-10-09",
+      "confidence": 1.0,
+      "relevance": 0.7,
+      "durability": "permanent"
+    }}
+  ],
+  "relations": []
+}}
+
+EXAMPLE EXTRACTION 2 (Verbatim Specifics):
+Text:
+[Session 2 — 3:00 pm on 12 Oct, 2023]
+I finally finished that sunset painting, oil on canvas, 24 by 36 inches. Also, I'm flying back to Sweden tomorrow.
+
+Output:
+{{
+  "claims": [
+    {{
+      "text": "On 12 Oct 2023, the speaker finished a sunset painting, oil on canvas, 24 by 36 inches.",
+      "type": "fact",
+      "entities": [],
+      "temporal": "2023-10-12",
+      "confidence": 1.0,
+      "relevance": 0.9,
+      "durability": "permanent"
+    }},
+    {{
+      "text": "On 13 Oct 2023, the speaker is flying back to Sweden.",
+      "type": "fact",
+      "entities": ["Sweden"],
+      "temporal": "2023-10-13",
+      "confidence": 1.0,
+      "relevance": 0.9,
+      "durability": "permanent"
+    }}
+  ],
+  "relations": []
+}}
+
+EXAMPLE EXTRACTION 3 (Low-Value/Filler):
+Text:
+Yeah, I think I'll update the readme file today. Bob fixed the typo on line 42. It was a good session.
+
+Output:
+{{
+  "claims": [],
+  "relations": []
+}}
 
 TEXT:
 {text}
 
-Return ONLY valid JSON (no markdown, no explanation):
+CRITICAL: Return ONLY valid JSON. NO MARKDOWN CODE BLOCKS. DO NOT wrap the output in ```json. Start immediately with {{.
+Emphasize preserving original phrases in the text field. Output format:
 {{
   "claims": [
     {{
-      "text": "self-contained atomic claim",
+      "text": "self-contained atomic claim, preserving original phrases and specific details verbatim",
       "type": "fact|experience|observation|opinion",
       "entities": ["Entity1", "Entity2"],
       "temporal": "when this happened, or null",
@@ -77,43 +161,119 @@ If nothing is relevant to the research goal, return {{"claims": [], "relations":
 
 EXTRACT_GENERIC: Final[
     str
-] = """You are building a long-term knowledge base. Extract ALL claims that would be \
-valuable when recalled weeks or months from now by someone with no memory of this conversation.
+] = """You are building a long-term knowledge base. Extract ALL claims that would be valuable when recalled weeks or months from now by someone with no memory of this conversation.
 
 The test for every claim: "Would recalling this change how I think or act?"
-- YES → extract it. Causality, corrections, relationships, how things work, why decisions were made.
-- NO → skip it. Narration, status updates, counts, process logs, things obvious from context.
+- YES → extract it. Causality, corrections, relationships, exact facts, specifics.
+- NO → skip it. Narration, minor status updates, counts, process logs, obvious context, trivial tasks, routine activities, filler, conversational pleasantries, vague statements.
 
 CRITICAL EXTRACTION RULES:
-1. ATOMICITY: Split complex sentences into independent atomic claims. A single claim must express exactly one fact, experience, observation, or opinion.
-2. COREFERENCE RESOLUTION: Never use pronouns (he, she, it, they, this, that). Replace all pronouns and vague references with the explicit entity names they refer to.
+1. ATOMICITY: Split complex sentences into independent atomic claims. Each claim must express exactly one fact, experience, observation, or opinion.
+2. COREFERENCE RESOLUTION: Never use pronouns (he, she, it, they, this, that). Replace all pronouns and vague references with the explicit entity names they refer to. For first-person pronouns (I, we, my), use "the speaker" or their specific name.
 3. SELF-CONTAINED: Every claim must be perfectly understandable on its own, without needing the original text or surrounding claims for context.
-4. SPECIFICITY: Preserve specific details: use exact country names, city names, exact numbers, and object names from the text. Never generalize them.
-5. EXHAUSTIVENESS: Extract absolutely every piece of valuable knowledge. Do not summarize or omit valuable details.
+4. STRICT VERBATIM RULE (CRUCIAL): DO NOT PARAPHRASE. You MUST preserve precise details and the EXACT original phrasing from the text. Copy exact country names, city names, exact numbers, amounts, quotes, and object names verbatim. NEVER generalize, abstract, or summarize specific details into broader categories.
+   - BAD (Generalized): "home country" → GOOD (Verbatim): "Sweden"
+   - BAD (Summarized): "a significant amount" → GOOD (Verbatim): "$285M"
+   - BAD (Categorized): "nature-inspired painting" → GOOD (Verbatim): "sunset painting, oil on canvas, 24 by 36 inches"
+   - BAD (Vague): "the protocol was hacked" → GOOD (Verbatim): "Drift Protocol was hacked for $285M"
+   - BAD (Anonymized): "a specific person" → GOOD (Verbatim): "John Doe"
+5. HIGH PRECISION & FILTERING: Extract ONLY high-value claims. Prefer fewer high-value claims over many trivial ones. DO NOT extract trivial restatements, obvious context, conversational filler, process logs, routine activities, or minor tasks (e.g., updating a readme, fixing a typo). Skip anything that doesn't provide significant, actionable new information. If a claim is trivial, vague, or border-line, YOU MUST SKIP IT.
 
-IMPORTANT temporal rules:
-- If the text has a date header (e.g. "[Session 3 — 2:00 pm on 25 May, 2023]"), use it as the reference date
-- Convert ALL relative time references ("last Saturday", "yesterday", "next month") to absolute dates using the reference date
-- Include the specific date IN the claim text itself, e.g. "On 20 May 2023, Melanie ran a charity race"
-- The "temporal" field should contain the exact date in YYYY-MM-DD format when possible
-
-Bad:  "The issue was fixed by changing line 240"
-Good: "sqlite-vec returns L2 distance by default, not cosine — schema must set distance_metric=cosine explicitly"
+IMPORTANT TEMPORAL RULES:
+- If the text has a date header (e.g. "[Session 3 — 2:00 pm on 25 May, 2023]"), use it as the reference date.
+- Convert ALL relative time references ("last Saturday", "yesterday", "next month") to absolute dates using the reference date.
+- Include the specific date IN the claim text itself, e.g. "On 20 May 2023, Melanie ran a charity race".
+- The "temporal" field should contain the exact date in YYYY-MM-DD format when possible.
 
 ENTITY RULES:
 - Entities are PROPER NOUNS: people, companies, projects, protocols, tools, places, specific products.
-- Use consistent Title Case: "EigenLayer", "Bitcoin", "Claude Code" — not "eigenlayer" or "claude code".
-- NEVER use generic terms as entities: "claims", "database", "extraction", "plugin", "API", "LLM", "function", "tests".
+- Use consistent Title Case: "EigenLayer", "Bitcoin", "Claude Code".
+- NEVER use generic terms as entities: "claims", "database", "extraction", "plugin", "API", "LLM".
 - Good: ["Tensory", "SQLite", "EigenLayer"]  Bad: ["claims", "extraction", "plugin"]
+
+EXAMPLE EXTRACTION 1:
+Text:
+[Session 1 — 10:00 am on 10 Oct, 2023]
+Yesterday, Alice reviewed the pull request and noticed that SQLite defaults to L2 distance. She suggested changing it to cosine distance since our vector embeddings are normalized. She also mentioned the $285M Drift Protocol hack.
+
+Output:
+{{
+  "claims": [
+    {{
+      "text": "On 09 Oct 2023, Alice noticed that SQLite defaults to L2 distance instead of cosine distance.",
+      "type": "fact",
+      "entities": ["Alice", "SQLite"],
+      "temporal": "2023-10-09",
+      "confidence": 1.0,
+      "durability": "permanent"
+    }},
+    {{
+      "text": "On 09 Oct 2023, Alice suggested configuring SQLite to use cosine distance because the vector embeddings are normalized.",
+      "type": "fact",
+      "entities": ["Alice", "SQLite"],
+      "temporal": "2023-10-09",
+      "confidence": 1.0,
+      "durability": "permanent"
+    }},
+    {{
+      "text": "On 09 Oct 2023, Alice mentioned the $285M Drift Protocol hack.",
+      "type": "fact",
+      "entities": ["Alice", "Drift Protocol"],
+      "temporal": "2023-10-09",
+      "confidence": 1.0,
+      "durability": "permanent"
+    }}
+  ],
+  "relations": []
+}}
+
+EXAMPLE EXTRACTION 2 (Verbatim Specifics):
+Text:
+[Session 2 — 3:00 pm on 12 Oct, 2023]
+I finally finished that sunset painting, oil on canvas, 24 by 36 inches. Also, I'm flying back to Sweden tomorrow.
+
+Output:
+{{
+  "claims": [
+    {{
+      "text": "On 12 Oct 2023, the speaker finished a sunset painting, oil on canvas, 24 by 36 inches.",
+      "type": "fact",
+      "entities": [],
+      "temporal": "2023-10-12",
+      "confidence": 1.0,
+      "durability": "permanent"
+    }},
+    {{
+      "text": "On 13 Oct 2023, the speaker is flying back to Sweden.",
+      "type": "fact",
+      "entities": ["Sweden"],
+      "temporal": "2023-10-13",
+      "confidence": 1.0,
+      "durability": "permanent"
+    }}
+  ],
+  "relations": []
+}}
+
+EXAMPLE EXTRACTION 3 (Low-Value/Filler):
+Text:
+Yeah, I think I'll update the readme file today. Bob fixed the typo on line 42. It was a good session.
+
+Output:
+{{
+  "claims": [],
+  "relations": []
+}}
 
 TEXT:
 {text}
 
-Return ONLY valid JSON (no markdown, no explanation):
+CRITICAL: Return ONLY valid JSON. NO MARKDOWN CODE BLOCKS. DO NOT wrap the output in ```json. Start immediately with {{.
+Emphasize preserving original phrases in the text field. Output format:
 {{
   "claims": [
     {{
-      "text": "self-contained atomic claim",
+      "text": "self-contained atomic claim, preserving original phrases and specific details verbatim",
       "type": "fact|experience|observation|opinion",
       "entities": ["Entity1", "Entity2"],
       "temporal": "when this happened, or null",

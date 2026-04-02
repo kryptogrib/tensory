@@ -716,6 +716,277 @@ _CASE_J1 = ExtractionTestCase(
     expected_entities=["Caroline", "Dr. Rivera", "Jake", "MIT"],
 )
 
+# ---------- K. Real-world: TG crypto/politics posts (Russian) --- 2 cases
+
+_CASE_K1 = ExtractionTestCase(
+    name="tg_drift_hack",
+    text=(
+        "[2026-03-28]\n"
+        "Взлом Drift Protocol\n\n"
+        "Думаю, вчера все слышали о том, что Drift (https://x.com/DriftProtocol) "
+        "был взломан на $285М и потерял более 50% своего TVL. Решил разобрать "
+        "ситуацию, может кому-то будет интересно.\n\n"
+        "Атака началась с компрометации ключей команды, скамеры получили доступ к "
+        "управлению параметрами протокола. Использовалась хитрая механика Solana, "
+        "позволяющая заранее подписывать транзакции и «выстреливать» ими пачкой, "
+        "обходя лимиты безопастности.\n\n"
+        "Хакер опустошил пулы JLP, USDC и cbBTC. Из интересного украденные средства "
+        "сразу ушли на Jupiter и мосты в сеть Ethereum (он закупил ETH).\n\n"
+        "На новости о взломе $DRIFT сложился на 40%, самые смартики успели зашортить "
+        "и заработать неплохую котлету."
+    ),
+    context=Context(id="k1", goal="Track DeFi security incidents", domain="crypto"),
+    expected_claims=[
+        ExpectedClaim(
+            must_contain=["drift", "285"],
+            claim_type=ClaimType.FACT,
+            expected_entities=["Drift"],
+            temporal="2026-03-27",
+        ),
+        ExpectedClaim(
+            must_contain=["drift", "tvl", "50%"],
+            claim_type=ClaimType.FACT,
+            expected_entities=["Drift"],
+        ),
+        ExpectedClaim(
+            must_contain=["key", "compromis"],
+            claim_type=ClaimType.FACT,
+            expected_entities=["Drift"],
+        ),
+        ExpectedClaim(
+            must_contain=["solana"],
+            claim_type=ClaimType.FACT,
+            expected_entities=["Solana"],
+        ),
+        ExpectedClaim(
+            must_contain=["jupiter", "ethereum"],
+            claim_type=ClaimType.FACT,
+            expected_entities=["Jupiter", "Ethereum"],
+        ),
+        ExpectedClaim(
+            must_contain=["drift", "40%"],
+            claim_type=ClaimType.FACT,
+            expected_entities=["Drift"],
+        ),
+    ],
+    expected_entities=["Drift", "Solana", "Jupiter", "Ethereum"],
+)
+
+_CASE_K2 = ExtractionTestCase(
+    name="tg_trump_iran_markets",
+    text=(
+        "[2026-03-28]\n"
+        "Выступление Дональда Трампа по ситуации в Иране (снова) обрушило рынки "
+        "и запампило нефть выше $100.\n\n"
+        "По словам президента США, страны, использующие Ормузский пролив, сами "
+        "должны позаботиться о его безопасности. Одновременно он назвал НАТО "
+        "«бумажным тигром», отметив, что США не нужен этот альянс.\n\n"
+        "Альтернативный вариант — Трамп предложил странам, которые страдают от "
+        "роста цен на нефть, закупать ее у США.\n\n"
+        "Неопределенность всего выступления обрушила S&P500 и биткоин. Курс "
+        "последнего протестировал $66 000, обрушив весь рынок. Суточные "
+        "ликвидации — $420 млн."
+    ),
+    context=Context(id="k2", goal="Track macro events affecting crypto", domain="crypto"),
+    expected_claims=[
+        ExpectedClaim(
+            must_contain=["trump", "iran", "oil", "100"],
+            claim_type=ClaimType.FACT,
+            expected_entities=["Trump"],
+            temporal="2026-03-28",
+        ),
+        ExpectedClaim(
+            must_contain=["hormuz", "strait"],
+            claim_type=ClaimType.FACT,
+        ),
+        ExpectedClaim(
+            must_contain=["nato", "paper tiger"],
+            claim_type=ClaimType.FACT,
+            expected_entities=["NATO"],
+        ),
+        ExpectedClaim(
+            must_contain=["s&p", "500"],
+            claim_type=ClaimType.FACT,
+        ),
+        ExpectedClaim(
+            must_contain=["bitcoin", "66"],
+            claim_type=ClaimType.FACT,
+            expected_entities=["Bitcoin"],
+        ),
+        ExpectedClaim(
+            must_contain=["liquidat", "420"],
+            claim_type=ClaimType.FACT,
+        ),
+    ],
+    expected_entities=["Trump", "NATO", "Iran"],
+)
+
+# ---------- L. Real-world: Russian crypto regulation TG post --- 1 case
+
+_CASE_L1 = ExtractionTestCase(
+    name="tg_russia_crypto_law",
+    text=(
+        "[2026-03-28]\n"
+        "Правительство РФ внесло в Госдуму проект федерального закона "
+        "«О цифровой валюте и цифровых правах». Документ опубликован "
+        "в электронной базе Государственной Думы.\n\n"
+        "Законопроектом вводится понятия «обращение» и «организация обращения» "
+        "цифровой валюты, определяются ключевые участники рынка, меры по надзору "
+        "и лимиты. Банк России наделяется полномочиями по допуску, регулированию "
+        "и надзору за организаторами обращения цифровой валюты и цифровых прав. "
+        "Большинство статей закона вступит в силу 1 июля 2026 года."
+    ),
+    context=Context(id="l1", goal="Track crypto regulation", domain="crypto"),
+    expected_claims=[
+        ExpectedClaim(
+            must_contain=["duma", "digital", "currenc"],
+            claim_type=ClaimType.FACT,
+            temporal="2026-03-28",
+        ),
+        ExpectedClaim(
+            must_contain=["bank of russia"],
+            claim_type=ClaimType.FACT,
+        ),
+        ExpectedClaim(
+            must_contain=["july", "2026"],
+            claim_type=ClaimType.FACT,
+            temporal="2026-07-01",
+        ),
+    ],
+    expected_entities=["State Duma", "Bank of Russia"],
+)
+
+# ---------- M. Real-world: ML research paper (English, long) --- 2 cases
+
+_CASE_M1 = ExtractionTestCase(
+    name="paper_llm_decisions_abstract",
+    text=(
+        "We consider the question: when a large language reasoning model makes a "
+        "choice, did it think first and then decide to, or decide first and then "
+        "think? In this paper, we present evidence that detectable, early-encoded "
+        "decisions shape chain-of-thought in reasoning models. Specifically, we "
+        "show that a simple linear probe successfully decodes tool-calling decisions "
+        "from pre-generation activations with very high confidence, and in some "
+        "cases, even before a single reasoning token is produced. Activation "
+        "steering supports this causally: perturbing the decision direction leads "
+        "to inflated deliberation, and flips behavior in many examples (between "
+        "7 - 79% depending on model and benchmark). We also show through behavioral "
+        "analysis that, when steering changes the decision, the chain-of-thought "
+        "process often rationalizes the flip rather than resisting it."
+    ),
+    context=Context(id="m1", goal="Track ML interpretability research", domain="machine learning"),
+    expected_claims=[
+        ExpectedClaim(
+            must_contain=["linear probe", "tool-calling", "pre-generation"],
+            claim_type=ClaimType.FACT,
+        ),
+        ExpectedClaim(
+            must_contain=["activation steering", "flip", "7", "79%"],
+            claim_type=ClaimType.FACT,
+        ),
+        ExpectedClaim(
+            must_contain=["chain-of-thought", "rationalize"],
+            claim_type=ClaimType.OBSERVATION,
+        ),
+    ],
+    expected_entities=[],
+)
+
+_CASE_M2 = ExtractionTestCase(
+    name="paper_mcts_results",
+    text=(
+        "We introduce negative early exit, which prunes unproductive MCTS "
+        "trajectories, and an adaptive boosting mechanism that reallocates "
+        "reclaimed computation to reduce resource contention among concurrent "
+        "searches. Integrated into vLLM, these techniques substantially reduce "
+        "p99 end-to-end latency while improving throughput and maintaining "
+        "reasoning accuracy. Built on vLLM and evaluated on Qwen-2.5 and "
+        "Llama-3.1, it achieves up to 2.83x lower p99 end-to-end latency "
+        "than serial MCTS and up to 1.46x lower latency than systems using "
+        "positive early exit alone, while increasing throughput by up to "
+        "2.44x without sacrificing reasoning accuracy."
+    ),
+    context=Context(id="m2", goal="Track ML inference optimization", domain="machine learning"),
+    expected_claims=[
+        ExpectedClaim(
+            must_contain=["negative early exit", "mcts"],
+            claim_type=ClaimType.FACT,
+        ),
+        ExpectedClaim(
+            must_contain=["vllm", "p99"],
+            claim_type=ClaimType.FACT,
+            expected_entities=["vLLM"],
+        ),
+        ExpectedClaim(
+            must_contain=["2.83", "latency"],
+            claim_type=ClaimType.FACT,
+        ),
+        ExpectedClaim(
+            must_contain=["qwen-2.5"],
+            claim_type=ClaimType.FACT,
+            expected_entities=["Qwen-2.5"],
+        ),
+        ExpectedClaim(
+            must_contain=["2.44", "throughput"],
+            claim_type=ClaimType.FACT,
+        ),
+    ],
+    expected_entities=["vLLM", "Qwen-2.5", "Llama-3.1", "MCTS"],
+)
+
+# ---------- N. Real-world: Crypto arbitrage article (Russian, long) --- 1 case
+
+_CASE_N1 = ExtractionTestCase(
+    name="article_crypto_arbitrage",
+    text=(
+        "Арбитраж криптовалюты — это несколько логически связанных сделок, "
+        "направленных на извлечение прибыли из разницы в ценах на одинаковые "
+        "или связанные активы в одно и то же время на разных биржах или на "
+        "разных рынках одной и той же платформы.\n\n"
+        "Крупнейший американский банк Bank of America после крупного "
+        "исследования крипторынка заявил, что 90% людей будут покупать крипту "
+        "во время спада, а Boston Consulting Group вообще считает, что к 2030 "
+        "году криптовалютами будет пользоваться более одного миллиарда людей.\n\n"
+        "Виды арбитража: внутрибиржевой (перепродажа внутри одной биржи), "
+        "межбиржевой (покупка на одной бирже, продажа на другой) и международный "
+        "(между биржами разных стран). На международном рынке сейчас наиболее "
+        "выгодно заниматься арбитражем из-за сложившейся политической обстановки.\n\n"
+        "Блокировки по 115 ФЗ («О противодействии легализации доходов, полученных "
+        "преступным путем») — главный юридический риск. Для банка важно понимать "
+        "«экономическую целесообразность ваших действий»."
+    ),
+    context=Context(id="n1", goal="Track crypto trading strategies", domain="crypto"),
+    expected_claims=[
+        ExpectedClaim(
+            must_contain=["arbitrage", "profit", "price differ"],
+            claim_type=ClaimType.FACT,
+        ),
+        ExpectedClaim(
+            must_contain=["bank of america", "90%"],
+            claim_type=ClaimType.FACT,
+            expected_entities=["Bank of America"],
+        ),
+        ExpectedClaim(
+            must_contain=["boston consulting", "2030", "billion"],
+            claim_type=ClaimType.FACT,
+            expected_entities=["Boston Consulting Group"],
+        ),
+        ExpectedClaim(
+            must_contain=["inter-exchange"],
+            claim_type=ClaimType.FACT,
+        ),
+        ExpectedClaim(
+            must_contain=["international", "arbitrage"],
+            claim_type=ClaimType.FACT,
+        ),
+        ExpectedClaim(
+            must_contain=["115"],
+            claim_type=ClaimType.FACT,
+        ),
+    ],
+    expected_entities=["Bank of America", "Boston Consulting Group"],
+)
+
 # ---------- Collect all cases ----------
 
 TEST_CASES: list[ExtractionTestCase] = [
@@ -754,9 +1025,19 @@ TEST_CASES: list[ExtractionTestCase] = [
     _CASE_I2,
     # J. Entity crowding (1) — LoCoMo popular vs rare
     _CASE_J1,
+    # K. TG posts — crypto/politics (2) — real-world Russian
+    _CASE_K1,
+    _CASE_K2,
+    # L. TG post — crypto regulation (1) — real-world Russian
+    _CASE_L1,
+    # M. ML papers — English research (2) — real-world long-form
+    _CASE_M1,
+    _CASE_M2,
+    # N. Crypto article — Russian education (1) — real-world long-form
+    _CASE_N1,
 ]
 
-assert len(TEST_CASES) == 25, f"Expected 25 cases, got {len(TEST_CASES)}"
+assert len(TEST_CASES) == 31, f"Expected 31 cases, got {len(TEST_CASES)}"
 
 
 # =========================================================================
@@ -859,6 +1140,10 @@ def entity_set_f1(
         return 0.0
 
     def _soft_match(needle: str, haystack_set: set[str]) -> bool:
+        # Require exact match for short entities (<=4 chars) to avoid
+        # false positives like "aws" matching "laws"
+        if len(needle) <= 4:
+            return needle in haystack_set
         return any(needle in h or h in needle for h in haystack_set)
 
     tp_recall = sum(1 for g in gold_entities if _soft_match(g, pred_entities))
@@ -877,8 +1162,9 @@ def entity_set_f1(
 # =========================================================================
 
 # Minimum must_contain_score to count as a match.
-# 0.5 means: at least half of required substrings must be found.
-MATCH_THRESHOLD = 0.5
+# 0.7 means: at least 70% of required substrings must be found.
+# Raised from 0.5 to reduce false positive matches.
+MATCH_THRESHOLD = 0.7
 
 
 @dataclass
